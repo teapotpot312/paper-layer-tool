@@ -1,0 +1,159 @@
+# 紙雕分層工具（Cricut 相容）
+
+上傳一張平面插畫，工具會自動依顏色分成多層，產生每一層的切割用 SVG。用彩色紙分別切割後一層層疊貼，就是立體紙雕。
+
+**線上使用：https://teapotpot312.github.io/paper-layer-tool/**
+
+- **完全免費、純前端**：所有運算都在瀏覽器裡完成，圖片不會上傳到任何伺服器。
+- **單一 HTML 檔**：`npm run build` 產生的 `dist/index.html` 雙擊即可使用，斷網也能用；也可以直接放到 GitHub Pages / Cloudflare Pages。
+- 介面預設繁體中文，可切換 English；支援亮色 / 暗色、桌機 / 平板 / 手機。
+
+![平面檢視](docs/01-flat-view-zh.png)
+
+## 使用方式
+
+1. 打開 `dist/index.html`（或開發模式的網址）。
+2. 把圖片拖進畫面、按「上傳檔案」，或直接 `Ctrl+V` 貼上。支援 PNG / JPG / WebP / SVG。還沒有圖片的話，首次導覽的最後一步可以「用範例圖片試試看」（之後可按頂部的 `?` 重新打開導覽）。
+3. 上傳後會**自動分層**，不需要按開始。左側工具列可微調：
+   | 面板 | 控制項 |
+   |---|---|
+   | 分層 | 成品寬度（cm / 吋）、層數（2–12，預設自動建議）、合併相近色、背景處理（保留 / 移除 / 當作底板）、細節程度 |
+   | 清理 | 最小碎片（mm²）、填補小洞、平滑度、最小可切寬度；過細區域以**紅色閃爍**標示，可選「略過 / 自動加粗 / 移除」 |
+   | 疊層 | 累加（建議）/ 獨立色塊、向外延伸 mm、自動排序（亮→暗 / 面積大→小） |
+   | 對位 | 四角對位記號（預設比照 Cricut 的 **L 型角**，也可選圓孔 / 十字）、邊距、大小、層編號 |
+4. 右側圖層面板：顯示 / 隱藏、點色塊改色、雙擊改名、拖曳排序（或選取後 `Alt+↑/↓`）。選取某層時其他層會淡化，並可設定該層的額外外擴、保留鏤空、墊泡棉。
+5. 底部切換**平面 / 分層 / 立體**檢視；立體檢視可拖曳旋轉，並調整層間距（泡棉厚度）。
+6. 按右上角「**製作 Make It**」選擇匯出方式並下載：
+   - **純切割（建議）**：ZIP 內含每層一個 SVG（`layer-01-#FEF2C4.svg`…）、一個多圖層合併 SVG、泡棉墊片 SVG、紙張清單。
+   - **列印再切割（Print Then Cut）**：每層與合成圖的 300 DPI PNG（透明背景、四周留白），超過尺寸上限會自動縮小。
+   - **說明書與預覽**：A4 PDF 製作說明書（縮圖、紙張清單、層疊順序、步驟）＋立體預覽 PNG。
+
+快捷鍵：`Ctrl+Z` 復原、`Ctrl+Y` / `Ctrl+Shift+Z` 重做（最多 50 步）、`Ctrl+S` 存專案、`Ctrl+0` 符合視窗、滑鼠拖曳平移、滾輪縮放。
+
+專案可存成 `.json`（含參數與原圖 base64），之後用「開啟」重新載入；另外會自動暫存在 IndexedDB，下次開啟時詢問是否還原（瀏覽器不支援時會安靜略過）。
+
+網址加上 `#sample`（例如 `index.html#sample`）會直接開啟範例圖。
+
+### 匯入 Cricut Design Space
+
+1. 解壓 ZIP（Design Space 無法直接上傳 ZIP）。
+2. Design Space →「Upload」→ 選擇 SVG。每層各自上傳，或上傳 `all-layers.svg`（依顏色自動拆成多個圖層）。
+3. 所有層使用相同畫布大小與座標原點，在 Design Space 中位置會對齊。
+4. Print Then Cut：上傳 PNG → 選「Print Then Cut」→ 依畫面指示列印與切割。黑色對位線由 Design Space 自動加上，本工具不會也不應畫。
+
+> **需要使用者以 Design Space 實測**：匯出的 SVG 已用瀏覽器實際繪製驗證（尺寸、孔洞為透明、各層顏色分開、無濾鏡 / 遮罩 / clipPath / 點陣圖 / 文字），但我無法在這個環境中執行 Cricut Design Space，請以實機確認。
+
+## 開發
+
+```bash
+npm install
+npm run dev      # 開發伺服器
+npm test         # 單元測試與驗收測試（Vitest）
+npm run build    # 型別檢查 + 產生單一檔案 dist/index.html
+```
+
+### 專案結構
+
+```
+src/
+├─ app/       React 介面（App、Sidebar、CanvasView、LayerPanel、ExportDialog、Tour、styles.css）
+├─ worker/    影像處理管線（quantize、mask、trace、pipeline、worker）
+├─ lib/       色彩轉換、型別、SVG 輸出、匯出（ZIP / PNG / PDF）、專案存檔、圖片載入
+├─ i18n/      zh-TW、en
+└─ assets/    內建範例插畫（程式繪製）
+tests/        管線單元測試（量化、連通區域、輪廓追蹤、偏移、SVG 輸出）與驗收測試
+docs/         驗收截圖
+```
+
+### 演算法管線（Web Worker 內執行，各段以參數快取）
+
+1. **預處理**：處理用影像統一縮放到長邊 1200px（小圖放大，讓細線有足夠像素；超過 4000px 會提示已縮小）；Alpha < 128 視為透明；「細節程度」> 0 時做 3×3 中值濾波（預設 0，因為會吃掉細線）。
+2. **顏色量化**：CIE Lab 空間 K-means++（固定種子，可重現），在 600px 縮圖上計算，草稿與精確結果共用同一組顏色。
+   - **只取樣色塊內部**（與 8 鄰居色差都 < 5 的像素），反鋸齒邊緣的混色不會佔用顏色名額。
+   - **漸層合併**：兩群顏色若在平坦像素之間大量相鄰、且每步色差 < 1（平滑過渡而非銳利邊緣），視為同一塊漸層並合併。
+   - **細線色救援**：只出現在細線上的顏色（描邊、手寫字）不在色塊內部；若邊緣像素既不接近任何主色、也不是附近色塊的混色，就另外分群補進調色盤（須與所有主色差 ≥ 20、且不在任兩個主色的混色線上）。
+   - 「合併相近色」以 CIE76 ΔE 門檻做階層式合併（預設 8）；面積 < 2% 的色塊需 ΔE < 門檻×0.6 才會被併掉。自動建議先分 16 色、最多 12 色。
+3. **像素分配與清理**：色塊內部直接取最近色；邊緣像素若能解釋成附近兩個色塊的混色，就歸給較接近的一側（不會多出一圈雜色）；單一底色上的細線像素偏向細線色超過 35% 就保留。之後只清掉被包圍的孤立雜點，同色連通區域（8 連通，斜線不會被拆碎）小於「最小碎片」者併入接觸最多的鄰近色；小於門檻的孔洞填補。
+4. **過細偵測**：以歐氏距離轉換（Felzenszwalb）做半徑 = 最小寬度/2 的開運算，開運算去不掉的部分即為過細區域（精確結果在半解析度上計算，精度約 0.25mm）；「自動加粗」以同半徑外擴補強，「移除」直接剔除。
+5. **疊層**：累加模式第 N 層 = 本層 ∪ 上方所有層；獨立模式以圓形結構元素外擴「向外延伸」mm（等同 round join 的 offset），但外擴部分只保留落在**上方圖層底下**的範圍，所以延伸處都藏在上層下面當黏貼面，成品可見的形狀不變，也不會蓋到下層的細節（例如福袋上的「福」字）。
+6. **輪廓追蹤**：遮罩高斯模糊後以 marching squares 取 0.5 等值線（次像素精度、外輪廓與孔洞方向相反；原屬於遮罩的像素至少保留 0.55，模糊不會讓細線消失），只處理該層的外框範圍，碰到圖片邊緣的形狀沿邊緣切齊。
+7. **簡化與平滑**：Douglas-Peucker 簡化，再以中點二次貝茲曲線平滑；轉角大於 55° 的點保持尖角。
+8. **輸出**：`<path d>` 單位 mm、`width` / `height` / `viewBox` 一致、`fill-rule="evenodd"`。
+
+> 規格建議的 Clipper（多邊形 offset / boolean）沒有採用：疊層的聯集與外擴都在點陣階段用距離轉換完成，結果與 round join 相同，且不會產生自交多邊形，也省掉一個依賴。
+
+### 效能（一般筆電，1000×1000 範例圖、8 層）
+
+- 拖曳滑桿時先回傳 480px 草稿，停止操作 350ms 後計算精確結果（約 1.5–2.5 秒，依圖片細節與層數而定）。
+- 開啟圖片後的第一次運算需要建立快取與 JIT 暖機，會再慢一些。
+- 單層 SVG 約 1–10 KB；節點數超過 8000 會提示。
+
+### 部署到 GitHub Pages
+
+推送到 `main` 分支時，`.github/workflows/deploy.yml` 會自動執行測試、打包並發佈到 GitHub Pages。第一次需要到儲存庫的 **Settings → Pages**，把 **Source** 設成 **GitHub Actions**。
+
+## 授權
+
+本專案以 [MIT 授權](LICENSE) 釋出。以下為使用的第三方套件授權。
+
+本專案使用的套件全部是寬鬆授權，**沒有 GPL**（例如未使用 Potrace）。
+
+| 套件 | 版本 | 授權 | 用途 |
+|---|---|---|---|
+| react / react-dom / scheduler | 19.3.1 / 0.28.0 | MIT | 介面 |
+| fflate | 0.8.3 | MIT | ZIP 打包 |
+| jspdf | 4.2.1 | MIT | PDF 說明書 |
+| └ jspdf 的相依：@babel/runtime、fast-png、iobuffer、canvg、core-js、raf、performance-now、regenerator-runtime、stackblur-canvas、svg-pathdata、html2canvas、css-line-break、utrie、base64-arraybuffer、text-segmentation | | MIT | |
+| └ pako | 2.2.0 | MIT AND Zlib | |
+| └ rgbcolor | 1.0.1 | MIT | |
+| └ dompurify | 3.4.17 | MPL-2.0 或 Apache-2.0（擇一，採 Apache-2.0） | |
+| vite / @vitejs/plugin-react / vite-plugin-singlefile / vitest（開發用） | 8.3.5 / 6.2.1 / 2.3.4 / 5.0.5 | MIT | 建置與測試 |
+| typescript（開發用） | 7.0.2 | Apache-2.0 | 型別檢查 |
+
+授權資訊取自 `node_modules` 內各套件的 `package.json`（2026-11-02）。
+
+## 查證結果（規格第 13 節）
+
+| 項目 | 結果 | 本工具的做法 |
+|---|---|---|
+| Print Then Cut 最大尺寸 | Cricut 官方說明（2025-03-19 版）：Letter 7.44 × 9.94 吋、A4 7.2 × 10.62 吋。有使用者回報部分版本只接受 6.92 × 9.72 吋，舊資料則為 6.75 × 9.25 吋。 | 採官方數值；超過時自動縮小並提示。作品四周留 3mm 透明邊界，避免與 Design Space 自動加上的對位線重疊。 |
+| 切割墊實際可切範圍 | 查不到官方公布的明確數值。社群普遍使用 12×12 吋墊約 11.5×11.5 吋、12×24 吋墊約 11.5×23.5 吋。 | 以上述數值做超尺寸警告，介面註明「以 Design Space 實際顯示為準」。 |
+| Design Space SVG 匯入 | 沒有找到官方規格頁面。第三方資料：多圖層 SVG 會依顏色拆成多個圖層；ZIP 必須先解壓；重新插入上傳的 SVG 時可能被縮放到 12 吋。 | 只用填色封閉 `path` + `evenodd`，不用濾鏡 / 遮罩 / clipPath / 點陣圖 / 文字；mm 單位與 viewBox 一致；多圖層版每層一個 `<g>`、各自填色。 |
+| 是否需要 Cricut Access | 上傳自己的 SVG 不需要訂閱。Cricut 曾在 2021 年 3 月宣布免費會員每月限 20 次上傳，但隨即撤回。我查不到 2025 年以後的官方確認。 | 介面與 README 註明「不需要 Cricut Access」，並建議使用者以實機確認。 |
+| 套件授權與維護狀態 | 見上方授權表。 | — |
+
+參考來源：
+- [Cricut Help: How large can I Print Then Cut?](https://help.cricut.com/hc/en-us/articles/360009429814-How-large-can-I-Print-Then-Cut)
+- [JenniferMaker: Cricut Print and Cut size](https://jennifermaker.com/cricut-print-and-cut-size)
+- [Hey Let's Make Stuff: Upload SVG files to Cricut Design Space](https://heyletsmakestuff.com/upload-svg-files-to-cricut-design-space/comment-page-4/)
+- [iMore: Cricut reverses 20 image upload limit](https://imore.com/cricut-reverses-20-image-upload-limit)
+- [Make: Cricut abandoning upload limitations](https://makezine.com/article/maker-news/cricut-listened-to-the-community-is-abandoning-unfair-limitations/)
+
+## 驗收結果
+
+| 項目 | 結果 |
+|---|---|
+| 橘子插畫（內建範例）：漸層身體合併成單一色層 | ✅ 橘色層 1 個物件，無碎色帶 |
+| 黑眼睛、綠葉、深色莖保留 | ✅ 各自成層 |
+| 淡黃圓點背景可開關 | ✅「背景處理 → 移除」或該層眼睛圖示 |
+| 「開工大吉」、金元寶、「福」字過細處標紅，可自動加粗或略過 | ✅ 範例圖偵測到 17 處，「自動加粗」後歸零 |
+| 純色 logo 2–3 層、輸出與原圖一致 | ✅ 自動測試：面積誤差 < 3% |
+| 照片不當機並提示 | ✅ 自動測試 + 介面提示文字 |
+| 上傳即自動分層、滑桿即時生效、圖層顯示 / 改色 / 排序、三種檢視、兩種疊層模式 | ✅ 已在瀏覽器實測 |
+| 匯出 SVG 孔洞不填滿、尺寸正確、各層顏色分開 | ✅ 瀏覽器繪製驗證；⚠️ 需使用者以 Design Space 實測 |
+| 完全離線、無外部網路請求 | ✅ 以 headless Edge 開啟 `file://` 單檔，網路請求只有 HTML 本身與內嵌 Worker 的 blob |
+| 單一 HTML 雙擊可用 | ✅ `dist/index.html`（約 1.1 MB，gzip 後 342 KB） |
+
+截圖：`docs/01` 平面、`02` 清理與紅色標示、`03` 分層、`04` 立體、`05` 獨立色塊、`06` 匯出面板、`07` 英文暗色、`08` 手機。
+
+## 已知限制
+
+- **未在 Cricut Design Space 實機驗證**，請先用一張廢紙試切。
+- 對位記號（L 型角 / 圓孔 / 十字）是裁在作品外圍邊距內的形狀，只會出現在純切割的 SVG 裡；Print Then Cut 的 PNG 不含記號，因為黑色對位線由 Design Space 自動加上。記號會裁成獨立的小片；要用來對位，需保留切割後的紙張外框，或改用相同畫布原點在 Design Space 中對齊。實際用法請依自己的流程調整，不需要時可整個關閉。
+- 自動排序只有「亮→暗」與「面積大→小」兩種規則，複雜插畫可能需要手動拖曳調整。
+- 色差使用 CIE76（不是 CIEDE2000），對藍紫色系的判斷較不精確。
+- 壓縮過的 JPEG / AVIF 邊緣較糊，極細（原圖 1px）的線條可能仍會斷裂；小於「最小碎片」的細節（例如 1mm 的小叉叉）會被清掉，需要時可調低該值。
+- 累加模式下，同一處過細區域會出現在多層；介面以去重後的數量提示。
+- PDF 說明書的文字是用瀏覽器系統字型畫成圖片再放進 PDF（避免 jsPDF 不支援中文），所以 PDF 內的文字無法選取。
+- jsPDF 會一併打包它的選用相依（html2canvas、canvg、DOMPurify），讓單一 HTML 變大，但不會發出任何網路請求。
+- 若電腦處於省電模式或瀏覽器分頁在背景，運算可能明顯變慢。

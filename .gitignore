@@ -1,0 +1,5 @@
+node_modules/
+dist/
+.claude/
+# 規格文件不公開
+paper-layer-tool-spec.md
