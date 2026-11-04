@@ -1,9 +1,10 @@
-import type { ReactElement } from 'react';
+import { useState, type ReactElement } from 'react';
 import { useT } from '../i18n';
 import type { Doc } from '../lib/project';
 import type { Params, PipelineResult } from '../lib/types';
 import { Segmented, Slider, Toggle } from './controls';
 import { Icon } from './Icon';
+import { StyleGuide, type Style } from './StyleGuide';
 
 export type PanelId = 'layers' | 'clean' | 'stack' | 'register';
 
@@ -22,11 +23,12 @@ interface Props {
   thinTotal: number;
 }
 
+/** 依設定的必要性排序：① 分色 ② 樣式 是必做，③ 清理 ④ 對位 可略過 */
 const TOOLS: { id: PanelId | 'upload' | 'export'; icon: string; key: 'tUpload' | 'tLayers' | 'tClean' | 'tStack' | 'tRegister' | 'tExport' }[] = [
   { id: 'upload', icon: 'upload', key: 'tUpload' },
   { id: 'layers', icon: 'layers', key: 'tLayers' },
-  { id: 'clean', icon: 'clean', key: 'tClean' },
   { id: 'stack', icon: 'stack', key: 'tStack' },
+  { id: 'clean', icon: 'clean', key: 'tClean' },
   { id: 'register', icon: 'target', key: 'tRegister' },
   { id: 'export', icon: 'download', key: 'tExport' },
 ];
@@ -75,6 +77,7 @@ function LayersPanel({ doc, setDoc, setParams, result }: Props) {
   return (
     <>
       <h2>{t('pLayers')}</h2>
+      <p className="panel-sub">{t('pLayersSub')}</p>
       <div className="ctrl">
         <div className="ctrl-head"><label htmlFor="w">{t('width')}</label></div>
         <div className="row">
@@ -124,6 +127,7 @@ function CleanPanel({ doc, setParams, thinTotal: thin, showThin, setShowThin }: 
   return (
     <>
       <h2>{t('pClean')}</h2>
+      <p className="panel-sub">{t('pCleanSub')}</p>
       <Slider label={t('minArea')} help={t('minAreaHelp')} value={p.minAreaMm2} min={0} max={30} step={0.5} unit="mm²" onChange={(v) => setParams({ minAreaMm2: v })} />
       <Slider label={t('fill')} help={t('fillHelp')} value={p.fillMm2} min={0} max={30} step={0.5} unit="mm²" onChange={(v) => setParams({ fillMm2: v })} />
       <Slider label={t('smooth')} help={t('smoothHelp')} value={p.smooth} min={0} max={10} onChange={(v) => setParams({ smooth: v })} />
@@ -141,68 +145,60 @@ function CleanPanel({ doc, setParams, thinTotal: thin, showThin, setShowThin }: 
   );
 }
 
-function StackPanel({ doc, setParams }: Props) {
+/** 作品樣式：一次決定疊層方式、泡棉與鏤空，使用者不用自己組合開關 */
+const STYLES: Record<Style, Pick<Params, 'mode' | 'depth' | 'keepHoles'>> = {
+  flat: { mode: 'additive', depth: 'flat', keepHoles: false },
+  slight: { mode: 'additive', depth: 'slight', keepHoles: false },
+  strong: { mode: 'additive', depth: 'strong', keepHoles: false },
+  cutout: { mode: 'independent', depth: 'flat', keepHoles: true },
+};
+export const styleOf = (p: Params): Style => (p.mode === 'independent' ? 'cutout' : p.depth);
+
+function StackPanel({ doc, setParams, result }: Props) {
   const t = useT();
   const p = doc.params;
+  const style = styleOf(p);
+  const [guide, setGuide] = useState(false);
+  const foamN = result?.layers.filter((l) => l.foam).length ?? 0;
+  const cards: { id: Style; icon: ReactElement }[] = [
+    { id: 'flat', icon: <DepthIcon depth="flat" /> },
+    { id: 'slight', icon: <DepthIcon depth="slight" /> },
+    { id: 'strong', icon: <DepthIcon depth="strong" /> },
+    { id: 'cutout', icon: <StackIcon mode="independent" /> },
+  ];
   return (
     <>
       <h2>{t('pStack')}</h2>
-      <div className="cards">
-        {(['additive', 'independent'] as const).map((m) => (
-          <button key={m} type="button" className={'card' + (p.mode === m ? ' on' : '')} onClick={() => setParams({ mode: m })} aria-pressed={p.mode === m}>
-            <StackIcon mode={m} />
-            <strong>{t(m)}</strong>
-            <small>{t(m === 'additive' ? 'additiveDesc' : 'independentDesc')}</small>
+      <div className="style-head">
+        <span className="ctrl-help">{t('styleHelp')}</span>
+        <button type="button" className="chip info" onClick={() => setGuide(true)} aria-label={t('sgOpen')}>
+          <span className="i" aria-hidden>i</span>{t('sgOpen')}
+        </button>
+      </div>
+      <div className="cards compact">
+        {cards.map((c) => (
+          <button key={c.id} type="button" className={'card' + (style === c.id ? ' on' : '')} onClick={() => setParams(STYLES[c.id])} aria-pressed={style === c.id}>
+            {c.icon}
+            <strong>{t(`style_${c.id}`)}</strong>
+            <small>{t(`style_${c.id}Desc`)}</small>
+            {style === c.id && foamN > 0 && <small className="card-now">{t('cardFoam', { n: foamN })}</small>}
           </button>
         ))}
       </div>
-      <Slider
-        label={t('extend')}
-        help={t('extendHelp')}
-        value={p.extendMm}
-        min={0}
-        max={3}
-        step={0.1}
-        unit="mm"
-        format={(v) => v.toFixed(1)}
-        disabled={p.mode === 'additive'}
-        onChange={(v) => setParams({ extendMm: v })}
-      />
-      {p.mode === 'additive' && <div className="ctrl-help">{t('extendOnlyIndep')}</div>}
-      <div className="ctrl">
-        <div className="ctrl-head"><label>{t('depth')}</label></div>
-        <div className="cards compact">
-          {(['flat', 'slight', 'strong'] as const).map((d) => (
-            <button key={d} type="button" className={'card' + (p.depth === d ? ' on' : '')} onClick={() => setParams({ depth: d })} aria-pressed={p.depth === d}>
-              <DepthIcon depth={d} />
-              <strong>{t(d === 'flat' ? 'depthFlat' : d === 'slight' ? 'depthSlight' : 'depthStrong')}</strong>
-              <small>{t(d === 'flat' ? 'depthFlatDesc' : d === 'slight' ? 'depthSlightDesc' : 'depthStrongDesc')}</small>
-            </button>
-          ))}
-        </div>
-        <div className="ctrl-help">{t('depthHelp')}</div>
-      </div>
-      <Toggle checked={p.keepHoles} onChange={(v) => setParams({ keepHoles: v })} label={t('keepHolesAll')} />
-      <div className="ctrl-help">{t('keepHolesAllHelp')}</div>
-      <Toggle checked={p.foamOut} onChange={(v) => setParams({ foamOut: v })} label={t('foamOut')} />
-      <div className="ctrl-help">{t('foamOutHelp')}</div>
-      <Slider
-        label={t('foamInset')}
-        help={t('foamInsetHelp')}
-        value={p.foamInsetMm}
-        min={0.5}
-        max={3}
-        step={0.1}
-        unit="mm"
-        format={(v) => v.toFixed(1)}
-        disabled={!p.foamOut}
-        onChange={(v) => setParams({ foamInsetMm: v })}
-      />
       <div className="ctrl">
         <div className="ctrl-head"><label>{t('sort')}</label></div>
-        <Segmented value={p.order ? ('' as 'light') : p.sort} label={t('sort')} options={[{ v: 'light', label: t('sortLight') }, { v: 'area', label: t('sortArea') }]} onChange={(v) => setParams({ sort: v, order: null })} />
+        <Segmented value={p.order ? ('' as 'light') : p.sort} label={t('sort')} options={[{ v: 'area', label: t('sortArea') }, { v: 'light', label: t('sortLight') }]} onChange={(v) => setParams({ sort: v, order: null })} />
         <div className="ctrl-help">{t('sortHint')}</div>
       </div>
+      <details className="adv">
+        <summary>{t('advanced')}</summary>
+        {style === 'cutout' ? (
+          <Slider label={t('extend')} help={t('extendHelp')} value={p.extendMm} min={0} max={3} step={0.1} unit="mm" format={(v) => v.toFixed(1)} onChange={(v) => setParams({ extendMm: v })} />
+        ) : (
+          <Slider label={t('foamInset')} help={t('foamInsetHelp')} value={p.foamInsetMm} min={0.5} max={3} step={0.1} unit="mm" format={(v) => v.toFixed(1)} onChange={(v) => setParams({ foamInsetMm: v })} />
+        )}
+      </details>
+      {guide && <StyleGuide current={style} onPick={(s) => setParams(STYLES[s])} onClose={() => setGuide(false)} />}
     </>
   );
 }
@@ -247,6 +243,7 @@ function RegisterPanel({ doc, setDoc }: Props) {
   return (
     <>
       <h2>{t('pRegister')}</h2>
+      <p className="panel-sub">{t('pRegisterSub')}</p>
       <Toggle checked={m.enabled} onChange={(v) => set({ enabled: v })} label={t('marksOn')} />
       <div className="ctrl-help">{t('marksHelp')}</div>
       <div className={'ctrl' + (m.enabled ? '' : ' disabled')}>

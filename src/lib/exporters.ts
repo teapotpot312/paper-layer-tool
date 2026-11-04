@@ -1,7 +1,7 @@
 import { strToU8, zipSync } from 'fflate';
 import type { T } from '../i18n';
 import { canvasSize, combinedSvg, distinctColors, foamPadsSvg, foamSvg, layerSvg, markPaths, type MarkOptions } from './svg';
-import type { LayerResult, StackMode } from './types';
+import type { LayerResult } from './types';
 
 export interface ExportLayer {
   layer: LayerResult;
@@ -184,7 +184,7 @@ export async function export3dPng(layers: ExportLayer[], widthMm: number, height
  * 模式 C：PDF 製作說明書。文字以 canvas（系統字型）繪製後放入 PDF，
  * 避免 jsPDF 內建字型不支援中文，也不需載入外部字型。
  */
-export async function exportPdf(layers: ExportLayer[], widthMm: number, heightMm: number, mode: StackMode, t: T) {
+export async function exportPdf(layers: ExportLayer[], widthMm: number, heightMm: number, styleName: string, t: T) {
   const { jsPDF } = await import('jspdf');
   const W = 1240, H = 1754, s = W / 210; // A4 @150dpi
   const c = document.createElement('canvas');
@@ -197,7 +197,7 @@ export async function exportPdf(layers: ExportLayer[], widthMm: number, heightMm
   g.font = font(54, true); g.fillText(t('pdfTitle'), 15 * s, 30 * s);
   g.font = font(26);
   g.fillStyle = '#444';
-  g.fillText(`${t('pdfSize')}: ${(widthMm / 10).toFixed(1)} × ${(heightMm / 10).toFixed(1)} cm   ·   ${t('pdfMode')}: ${mode === 'additive' ? t('additive') : t('independent')}`, 15 * s, 40 * s);
+  g.fillText(`${t('pdfSize')}: ${(widthMm / 10).toFixed(1)} × ${(heightMm / 10).toFixed(1)} cm   ·   ${t('pdfMode')}: ${styleName}`, 15 * s, 40 * s);
 
   // 縮圖
   const prev = render3dPreview(layers, widthMm, heightMm);

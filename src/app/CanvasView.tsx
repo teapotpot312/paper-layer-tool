@@ -124,7 +124,7 @@ export const CanvasView = forwardRef<CanvasHandle, Props>(function CanvasView(pr
     const dx = e.clientX - d.x, dy = e.clientY - d.y;
     if (Math.abs(dx) + Math.abs(dy) > 3) d.moved = true;
     if (d.rotate) {
-      setRot((r) => ({ x: Math.min(75, Math.max(0, r.x - (e.movementY || 0) * 0.4)), z: r.z + (e.movementX || 0) * 0.4 }));
+      setRot((r) => ({ x: Math.min(75, Math.max(0, r.x - (e.movementY || 0) * 0.4)), z: r.z - (e.movementX || 0) * 0.4 }));
     } else setPan({ x: d.px + dx, y: d.py + dy });
   };
   const onPointerUp = (e: React.PointerEvent) => {

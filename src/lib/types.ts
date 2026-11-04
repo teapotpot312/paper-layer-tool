@@ -57,7 +57,7 @@ export const defaultParams: Params = {
   fix: 'off',
   mode: 'additive',
   extendMm: 0.5,
-  sort: 'light',
+  sort: 'area',
   order: null,
   depth: 'flat',
   keepHoles: false,

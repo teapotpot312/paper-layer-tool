@@ -11,7 +11,7 @@ import { IconButton, Segmented, Slider } from './controls';
 import { ExportDialog } from './ExportDialog';
 import { Icon } from './Icon';
 import { LayerPanel } from './LayerPanel';
-import { Sidebar, type PanelId } from './Sidebar';
+import { Sidebar, styleOf, type PanelId } from './Sidebar';
 import { Tour } from './Tour';
 import { useHistory } from './useHistory';
 
@@ -352,7 +352,7 @@ export function App() {
         <input ref={projRef} type="file" hidden accept=".json,application/json" onChange={(e) => { const f = e.target.files?.[0]; if (f) loadFile(f); e.target.value = ''; }} />
 
         {exportOpen && result && (
-          <ExportDialog layers={exportLayers} widthMm={result.widthMm} heightMm={result.heightMm} marks={doc.marks} mode={doc.params.mode} warnings={warnings} thinTotal={thinTotal} onClose={() => setExportOpen(false)} />
+          <ExportDialog layers={exportLayers} widthMm={result.widthMm} heightMm={result.heightMm} marks={doc.marks} styleName={t(`style_${styleOf(doc.params)}`)} warnings={warnings} thinTotal={thinTotal} onClose={() => setExportOpen(false)} />
         )}
         {tour && (
           <Tour

@@ -27,7 +27,7 @@ describe('驗收', () => {
       if (Math.abs(x - 200) < 50 && Math.abs(y - 200) < 50) return [255, 255, 255];
       return [20, 90, 200];
     });
-    const res = run(img, { ...defaultParams, widthMm: 100 });
+    const res = run(img, { ...defaultParams, widthMm: 100, sort: 'light' });
     expect(res.layers.length).toBe(2);
     const mm = 100 / 400;
     const circle = Math.PI * 150 * 150 * mm * mm;

@@ -4,7 +4,6 @@ import { rgbToLab } from '../lib/color';
 import { export3dPng, exportArtwork, exportCutZip, exportFoamPads, exportLayerFiles, exportPdf, exportPtc, hasFoamPads, IN, PTC_MAX, ptcFit, sheetsFor, withDistinctColors, type ExportLayer, type PaperSize } from '../lib/exporters';
 import { hexToRgb } from '../lib/color';
 import type { MarkOptions } from '../lib/svg';
-import type { StackMode } from '../lib/types';
 import { Segmented } from './controls';
 import { Icon } from './Icon';
 
@@ -15,13 +14,13 @@ interface Props {
   widthMm: number;
   heightMm: number;
   marks: MarkOptions;
-  mode: StackMode;
+  styleName: string;
   warnings: string[];
   thinTotal: number;
   onClose: () => void;
 }
 
-export function ExportDialog({ layers, widthMm, heightMm, marks, mode, warnings, thinTotal: thin, onClose }: Props) {
+export function ExportDialog({ layers, widthMm, heightMm, marks, styleName, warnings, thinTotal: thin, onClose }: Props) {
   const t = useT();
   const [m, setM] = useState<Mode>('A');
   const [paper, setPaper] = useState<PaperSize>('letter');
@@ -61,7 +60,7 @@ export function ExportDialog({ layers, widthMm, heightMm, marks, mode, warnings,
       if (m === 'A') exportArtwork(layers, widthMm, heightMm, marks);
       else if (m === 'B') await exportPtc(layers, widthMm, heightMm, paper);
       else {
-        await exportPdf(layers, widthMm, heightMm, mode, t);
+        await exportPdf(layers, widthMm, heightMm, styleName, t);
         await export3dPng(layers, widthMm, heightMm);
       }
     } catch (e) {
