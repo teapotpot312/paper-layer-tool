@@ -4,7 +4,7 @@ import { hexToRgb } from '../lib/color';
 import type { LayerMeta } from '../lib/project';
 import type { LayerOpts } from '../lib/types';
 import type { ViewLayer } from './CanvasView';
-import { Slider, Toggle } from './controls';
+import { Segmented, Slider } from './controls';
 import { Icon } from './Icon';
 
 interface Props {
@@ -15,15 +15,33 @@ interface Props {
   onReorder: (order: number[]) => void;
   opts: Record<number, LayerOpts>;
   onOpts: (id: number, patch: LayerOpts) => void;
+  /** 全域：保留鏤空 */
+  globalHoles: boolean;
+  /** 全域泡棉厚度（預覽） */
+  foamMm: number;
 }
 
-export function LayerPanel({ layers, selected, onSelect, onMeta, onReorder, opts, onOpts }: Props) {
+const isOverridden = (o: LayerOpts | undefined, foamMm: number | undefined) =>
+  !!o?.extra || o?.keepHoles !== undefined || o?.foam !== undefined || foamMm !== undefined;
+
+function Override({ onReset }: { onReset: () => void }) {
+  const t = useT();
+  return (
+    <span className="ovr">
+      <em className="tag ovr-tag">● {t('overridden')}</em>
+      <button type="button" className="chip" onClick={onReset}>{t('resetGlobal')}</button>
+    </span>
+  );
+}
+
+export function LayerPanel({ layers, selected, onSelect, onMeta, onReorder, opts, onOpts, globalHoles, foamMm }: Props) {
   const t = useT();
   const [dragId, setDragId] = useState<number | null>(null);
   const [overId, setOverId] = useState<number | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
   const top = [...layers].reverse(); // 面板由上到下顯示（同 Design Space）
   const sel = layers.find((l) => l.layer.id === selected);
+  const so: LayerOpts = (sel && opts[sel.layer.id]) || {};
 
   const drop = (targetId: number) => {
     if (dragId == null || dragId === targetId) return;
@@ -92,7 +110,8 @@ export function LayerPanel({ layers, selected, onSelect, onMeta, onReorder, opts
                   <span className="layer-name" title={t('rename')} onDoubleClick={(e) => { e.stopPropagation(); setEditing(l.layer.id); }}>
                     {l.name}
                     {l.layer.isBg && <em className="tag">{t('bgTag')}</em>}
-                    {opts[l.layer.id]?.foam && <em className="tag foam">{t('foamTag')}</em>}
+                    {l.layer.foam && <em className="tag foam">{t('foamTag')}</em>}
+                    {isOverridden(opts[l.layer.id], l.foamMm) && <span className="ovr-dot" title={t('overridden')} aria-label={t('overridden')} />}
                   </span>
                 )}
                 <small>
@@ -112,19 +131,56 @@ export function LayerPanel({ layers, selected, onSelect, onMeta, onReorder, opts
             {sel.color} · RGB({hexToRgb(sel.color).join(', ')})
           </p>
           <p className="ctrl-help">{t('colorNote')}</p>
+          <p className="ctrl-help">{t('overrideHint')}</p>
           <Slider
             label={t('extra')}
             help={t('extendHelp')}
-            value={opts[sel.layer.id]?.extra ?? 0}
+            value={so.extra ?? 0}
             min={-1}
             max={3}
             step={0.1}
             unit="mm"
             format={(v) => v.toFixed(1)}
-            onChange={(v) => onOpts(sel.layer.id, { extra: v })}
+            onChange={(v) => onOpts(sel.layer.id, { extra: v === 0 ? undefined : v })}
+            extra={so.extra ? <Override onReset={() => onOpts(sel.layer.id, { extra: undefined })} /> : null}
           />
-          <Toggle checked={!!opts[sel.layer.id]?.keepHoles} onChange={(v) => onOpts(sel.layer.id, { keepHoles: v })} label={t('keepHoles')} />
-          <Toggle checked={!!opts[sel.layer.id]?.foam} onChange={(v) => onOpts(sel.layer.id, { foam: v })} label={t('foam')} />
+          <div className="ctrl">
+            <div className="ctrl-head">
+              <label>{t('holesRow')}</label>
+              {so.keepHoles !== undefined && <Override onReset={() => onOpts(sel.layer.id, { keepHoles: undefined })} />}
+            </div>
+            <Segmented
+              value={(so.keepHoles ?? globalHoles) ? 'keep' : 'fill'}
+              label={t('holesRow')}
+              options={[{ v: 'keep', label: t('holesKeep') }, { v: 'fill', label: t('holesFill') }]}
+              onChange={(v) => onOpts(sel.layer.id, { keepHoles: (v === 'keep') === globalHoles ? undefined : v === 'keep' })}
+            />
+          </div>
+          <div className="ctrl">
+            <div className="ctrl-head">
+              <label>{t('foamRow')}</label>
+              {so.foam !== undefined && <Override onReset={() => onOpts(sel.layer.id, { foam: undefined })} />}
+            </div>
+            <Segmented
+              value={sel.layer.foam ? 'on' : 'flat'}
+              label={t('foamRow')}
+              options={[{ v: 'flat', label: t('foamFlat') }, { v: 'on', label: t('foamOn') }]}
+              onChange={(v) => onOpts(sel.layer.id, { foam: (v === 'on') === sel.layer.foamAuto ? undefined : v === 'on' })}
+            />
+          </div>
+          {sel.layer.foam && (
+            <Slider
+              label={t('layerFoam')}
+              help={t('layerFoamHelp')}
+              value={sel.foamMm ?? foamMm}
+              min={0}
+              max={10}
+              step={0.5}
+              unit="mm"
+              onChange={(v) => onMeta(sel.layer.id, { foamMm: v === foamMm ? undefined : v })}
+              extra={sel.foamMm !== undefined ? <Override onReset={() => onMeta(sel.layer.id, { foamMm: undefined })} /> : null}
+            />
+          )}
         </div>
       )}
     </aside>

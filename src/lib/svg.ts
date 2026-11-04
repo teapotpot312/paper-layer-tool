@@ -155,3 +155,48 @@ export function foamSvg(layer: LayerResult, widthMm: number, heightMm: number, m
 </svg>
 `;
 }
+
+/** 全部泡棉墊片放在一個 SVG：每片一個 <g>，灰階各差 1 讓 Design Space 拆成不同圖層 */
+export function foamPadsSvg(pads: { layer: LayerResult; index: number }[], widthMm: number, heightMm: number, marks: MarkOptions): string {
+  const { w, h, offset } = canvasSize(widthMm, heightMm, marks);
+  const groups = pads
+    .map(({ layer, index }, i) => {
+      const v = (0xc8 + i).toString(16).toUpperCase();
+      return `  <g id="foam-${String(index).padStart(2, '0')}">
+    <path d="${layer.foamD}" fill="#${v}${v}${v}" fill-rule="evenodd" transform="translate(${offset} ${offset})"/>
+  </g>`;
+    })
+    .join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="${w}mm" height="${h}mm" viewBox="0 0 ${w} ${h}">
+${groups}
+</svg>
+`;
+}
+
+/**
+ * Design Space 依填色拆圖層，同色的層會被併成一層。
+ * 重複的顏色自動微調 1 個 RGB 值（優先調藍色，再綠、紅），回傳新色與被調整的索引。
+ */
+export function distinctColors(colors: string[]): { colors: string[]; adjusted: number[] } {
+  const used = new Set<string>();
+  const adjusted: number[] = [];
+  const out = colors.map((c, i) => {
+    let hex = c.toUpperCase();
+    if (!used.has(hex)) { used.add(hex); return hex; }
+    const rgb = [1, 3, 5].map((k) => parseInt(hex.slice(k, k + 2), 16));
+    search: for (let d = 1; d < 256; d++)
+      for (const ch of [2, 1, 0])
+        for (const s of [1, -1]) {
+          const v = rgb[ch] + s * d;
+          if (v < 0 || v > 255) continue;
+          const n = rgb.slice(); n[ch] = v;
+          const cand = '#' + n.map((x) => x.toString(16).padStart(2, '0')).join('').toUpperCase();
+          if (!used.has(cand)) { hex = cand; break search; }
+        }
+    used.add(hex);
+    adjusted.push(i);
+    return hex;
+  });
+  return { colors: out, adjusted };
+}

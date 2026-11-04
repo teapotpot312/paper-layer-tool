@@ -1,5 +1,5 @@
 import { deltaE, rgbToLab, toHex } from '../lib/color';
-import type { LayerResult, Params, PipelineResult, Quality, RGBAImage } from '../lib/types';
+import type { Depth, LayerResult, Params, PipelineResult, Quality, RGBAImage } from '../lib/types';
 import { absorbSmall, components, dilate, downscale, erode, fillHoles, median3, modeFilter, thinRegions } from './mask';
 import { assignLabels, buildPalette, type PaletteColor } from './quantize';
 import { refineRing, ringArea, ringsToPath, simplify, traceMask, type Ring } from './trace';
@@ -95,6 +95,9 @@ export class Pipeline {
       own.set(id, m);
     }
 
+    const ownArea = order.map((id) => { const m = own.get(id)!; let a = 0; for (let i = 0; i < N; i++) a += m[i]; return a; });
+    const autoFoam = pickFoam(order, ownArea, p.depth);
+
     mark("clean");
     const layers: LayerResult[] = [];
     let acc: Uint8Array | null = null;
@@ -102,7 +105,7 @@ export class Pipeline {
     for (let oi = order.length - 1; oi >= 0; oi--) {
       const id = order[oi];
       const opts = p.layerOpts[id] ?? {};
-      const holes = (x: Uint8Array) => (opts.keepHoles ? x : fillHoles(x, w, h, p.fillMm2 * pxPerMm * pxPerMm));
+      const holes = (x: Uint8Array) => ((opts.keepHoles ?? p.keepHoles) ? x :fillHoles(x, w, h, p.fillMm2 * pxPerMm * pxPerMm));
       const mine = own.get(id)!;
       const above = acc;
       // 累加的聯集一律往下傳，獨立模式用來限制延伸範圍
@@ -159,8 +162,10 @@ export class Pipeline {
       const [thinD] = ringsToPath(thinRings, mm * hs, false);
       const thinCount = components(thin, hw, hh).areas.length;
       let foamD = "";
-      if (p.layerOpts[id]?.foam) {
-        const fm = erode(m, w, h, 1 * pxPerMm);
+      const foamAuto = autoFoam.has(id);
+      const foam = p.layerOpts[id]?.foam ?? foamAuto;
+      if (foam && p.foamOut) {
+        const fm = erode(m, w, h, p.foamInsetMm * pxPerMm);
         [foamD] = ringsToPath(trace(fm).contours, mm, true);
       }
       const c = palette[id].rgb;
@@ -173,6 +178,8 @@ export class Pipeline {
         nodes,
         thinD,
         thinCount,
+        foam,
+        foamAuto,
         foamD,
         isBg: id === bgId,
       });
@@ -315,4 +322,25 @@ function uniqueColors(data: Uint8ClampedArray): number {
   const s = new Set<number>();
   for (let i = 0; i < data.length; i += 4) if (data[i + 3] >= 128) s.add(((data[i] >> 3) << 10) | ((data[i + 1] >> 3) << 5) | (data[i + 2] >> 3));
   return s.size;
+}
+
+/**
+ * 立體感預設組合自動挑選墊泡棉的層（order 由下到上，area = 各層自己的可見面積）。
+ * - 平貼：都不墊
+ * - 強烈立體：除最底層外每層都墊
+ * - 輕微立體：最底層不墊；面積最大的前景主體墊；位於上方三分之一、面積不到主體 1/4 的細節層也墊
+ */
+export function pickFoam(order: number[], area: number[], depth: Depth): Set<number> {
+  const out = new Set<number>();
+  if (depth === 'flat' || order.length < 2) return out;
+  if (depth === 'strong') {
+    for (const id of order.slice(1)) out.add(id);
+    return out;
+  }
+  let subj = 1;
+  for (let i = 2; i < order.length; i++) if (area[i] > area[subj]) subj = i;
+  out.add(order[subj]);
+  const topStart = order.length - Math.max(1, Math.round((order.length - 1) / 3));
+  for (let i = Math.max(1, topStart); i < order.length; i++) if (i !== subj && area[i] < area[subj] * 0.25) out.add(order[i]);
+  return out;
 }

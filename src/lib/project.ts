@@ -5,6 +5,8 @@ export interface LayerMeta {
   name?: string;
   color?: string;
   hidden?: boolean;
+  /** 本層泡棉厚度覆寫（mm，只影響立體預覽） */
+  foamMm?: number;
 }
 
 export type Unit = 'cm' | 'in';

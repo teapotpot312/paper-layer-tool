@@ -4,12 +4,15 @@ export type FixMode = 'off' | 'thicken' | 'remove';
 export type SortMode = 'light' | 'area';
 export type Quality = 'draft' | 'final';
 
+export type Depth = 'flat' | 'slight' | 'strong';
+
+/** 逐層覆寫：undefined = 跟隨全域設定 */
 export interface LayerOpts {
   /** 額外外擴 (mm)，加在全域延伸量上 */
   extra?: number;
-  /** 保留鏤空（不填補孔洞） */
+  /** 保留鏤空（true）或填滿小洞（false） */
   keepHoles?: boolean;
-  /** 建議墊泡棉 → 匯出縮小的泡棉墊片 */
+  /** 墊泡棉（true）或平貼（false） */
   foam?: boolean;
 }
 
@@ -30,6 +33,14 @@ export interface Params {
   sort: SortMode;
   /** 圖層 id 由下到上；null = 依 sort 自動 */
   order: number[] | null;
+  /** 立體感預設組合（全域） */
+  depth: Depth;
+  /** 全域：保留鏤空（不填補孔洞） */
+  keepHoles: boolean;
+  /** 全域：匯出泡棉墊片 */
+  foamOut: boolean;
+  /** 泡棉墊片內縮量 (mm) */
+  foamInsetMm: number;
   layerOpts: Record<number, LayerOpts>;
 }
 
@@ -48,6 +59,10 @@ export const defaultParams: Params = {
   extendMm: 0.5,
   sort: 'light',
   order: null,
+  depth: 'flat',
+  keepHoles: false,
+  foamOut: true,
+  foamInsetMm: 1,
   layerOpts: {},
 };
 
@@ -62,6 +77,11 @@ export interface LayerResult {
   nodes: number;
   thinD: string;
   thinCount: number;
+  /** 最終是否墊泡棉（全域設定 + 逐層覆寫） */
+  foam: boolean;
+  /** 只依全域設定時是否墊泡棉（介面判斷「已覆寫」用） */
+  foamAuto: boolean;
+  /** 泡棉墊片輪廓（墊泡棉且開啟墊片輸出時才有） */
   foamD: string;
   isBg: boolean;
 }

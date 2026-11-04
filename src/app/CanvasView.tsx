@@ -7,6 +7,8 @@ export interface ViewLayer {
   color: string;
   name: string;
   visible: boolean;
+  /** 本層泡棉厚度覆寫（mm） */
+  foamMm?: number;
 }
 
 export type ViewMode = 'flat' | 'layers' | 'stack';
@@ -224,6 +226,14 @@ function Grid({ layers, widthMm, heightMm, marks, selected, showThin, scale, col
 function Stack({ layers, widthMm, heightMm, marks, gapMm, scale, rot }: Props & { scale: number; rot: { x: number; z: number } }) {
   const { w, h, offset } = canvasSize(widthMm, heightMm, marks);
   const vis = layers.filter((l) => l.visible);
+  // 每層高度 = 紙厚 + 墊泡棉的層再加上泡棉厚度（全域或本層覆寫）
+  const PAPER = 0.3;
+  let z = 0;
+  const zs = vis.map((l, i) => {
+    const lift = i === 0 ? 0 : PAPER + (l.layer.foam ? (l.foamMm ?? gapMm) : 0);
+    z += lift;
+    return { z, lift };
+  });
   return (
     <div className="stack3d" style={{ width: w * scale, height: h * scale }}>
       <div className="stack3d-inner" style={{ transform: `rotateX(${rot.x}deg) rotateZ(${rot.z}deg)` }}>
@@ -234,7 +244,7 @@ function Stack({ layers, widthMm, heightMm, marks, gapMm, scale, rot }: Props & 
             width={w * scale}
             height={h * scale}
             viewBox={`0 0 ${w} ${h}`}
-            style={{ transform: `translateZ(${i * gapMm * scale}px)`, filter: i === 0 ? undefined : `drop-shadow(${0.4 * scale}px ${0.8 * scale}px ${(0.6 + gapMm * 0.5) * scale}px rgba(0,0,0,.35))` }}
+            style={{ transform: `translateZ(${zs[i].z * scale}px)`, filter: i === 0 ? undefined : `drop-shadow(${0.4 * scale}px ${0.8 * scale}px ${(0.6 + zs[i].lift * 0.5) * scale}px rgba(0,0,0,.35))` }}
           >
             <path transform={`translate(${offset} ${offset})`} d={l.layer.d} fill={l.color} fillRule="evenodd" />
           </svg>

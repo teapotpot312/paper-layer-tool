@@ -1,6 +1,6 @@
 import { strToU8, zipSync } from 'fflate';
 import type { T } from '../i18n';
-import { canvasSize, combinedSvg, foamSvg, layerSvg, markPaths, type MarkOptions } from './svg';
+import { canvasSize, combinedSvg, distinctColors, foamPadsSvg, foamSvg, layerSvg, markPaths, type MarkOptions } from './svg';
 import type { LayerResult, StackMode } from './types';
 
 export interface ExportLayer {
@@ -53,14 +53,60 @@ function paperListText(layers: ExportLayer[], widthMm: number, heightMm: number,
   return [`${t('paperList')} — ${(widthMm / 10).toFixed(1)} × ${(heightMm / 10).toFixed(1)} cm`, `${t('colOrder')}\tName\tHEX\tRGB\t${t('colArea')}\t${t('colSheets')}`, ...rows].join('\r\n');
 }
 
-/** 模式 A：每層一個 SVG + 合併 SVG + 泡棉墊片 + 紙張清單 → ZIP */
-export function exportCutZip(layers: ExportLayer[], widthMm: number, heightMm: number, marks: MarkOptions, includeCombined: boolean, t: T) {
-  const files: Record<string, Uint8Array> = {};
-  layers.forEach((l, i) => {
-    files[`layer-${pad2(i + 1)}-${fileHex(l.color)}.svg`] = strToU8(layerSvg(l.layer, widthMm, heightMm, marks, i + 1, layers.length, l.color));
-    if (l.foam && l.layer.foamD) files[`foam-${pad2(i + 1)}.svg`] = strToU8(foamSvg(l.layer, widthMm, heightMm, marks));
+/** 匯出用：重複的顏色微調成互不相同（Design Space 依顏色拆層） */
+export function withDistinctColors(layers: ExportLayer[]): { layers: ExportLayer[]; adjusted: ExportLayer[] } {
+  const { colors, adjusted } = distinctColors(layers.map((l) => l.color));
+  const out = layers.map((l, i) => ({ ...l, color: colors[i] }));
+  return { layers: out, adjusted: adjusted.map((i) => out[i]) };
+}
+
+const svgBlob = (s: string) => new Blob([s], { type: 'image/svg+xml' });
+
+/** 模式 A 預設：單一多圖層 SVG（每層一個 <g>、各自填色、同一原點） */
+export function artworkSvg(layers: ExportLayer[], widthMm: number, heightMm: number, marks: MarkOptions): string {
+  return combinedSvg(withDistinctColors(layers).layers.map((l) => ({ layer: l.layer, color: l.color })), widthMm, heightMm, marks);
+}
+
+export function exportArtwork(layers: ExportLayer[], widthMm: number, heightMm: number, marks: MarkOptions) {
+  download(svgBlob(artworkSvg(layers, widthMm, heightMm, marks)), 'artwork.svg');
+}
+
+const foamPads = (layers: ExportLayer[]) => layers.map((l, i) => ({ layer: l.layer, index: i + 1 })).filter((p, i) => layers[i].foam && p.layer.foamD);
+
+export function hasFoamPads(layers: ExportLayer[]) {
+  return foamPads(layers).length > 0;
+}
+
+/** 全部泡棉墊片合併成一個 SVG */
+export function exportFoamPads(layers: ExportLayer[], widthMm: number, heightMm: number, marks: MarkOptions) {
+  download(svgBlob(foamPadsSvg(foamPads(layers), widthMm, heightMm, marks)), 'foam-pads.svg');
+}
+
+/** 備用：每層獨立 SVG（+ 泡棉墊片），檔名 → 內容 */
+function layerFiles(layers: ExportLayer[], widthMm: number, heightMm: number, marks: MarkOptions): Record<string, string> {
+  const files: Record<string, string> = {};
+  withDistinctColors(layers).layers.forEach((l, i) => {
+    files[`layer-${pad2(i + 1)}-${fileHex(l.color)}.svg`] = layerSvg(l.layer, widthMm, heightMm, marks, i + 1, layers.length, l.color);
+    if (l.foam && l.layer.foamD) files[`foam-${pad2(i + 1)}.svg`] = foamSvg(l.layer, widthMm, heightMm, marks);
   });
-  if (includeCombined) files['all-layers.svg'] = strToU8(combinedSvg(layers.map((l) => ({ layer: l.layer, color: l.color })), widthMm, heightMm, marks));
+  return files;
+}
+
+/** 備用：逐檔下載每層 SVG */
+export async function exportLayerFiles(layers: ExportLayer[], widthMm: number, heightMm: number, marks: MarkOptions) {
+  for (const [name, s] of Object.entries(layerFiles(layers, widthMm, heightMm, marks))) {
+    download(svgBlob(s), name);
+    // 連續觸發下載時稍微間隔，避免瀏覽器略過
+    await new Promise((r) => setTimeout(r, 350));
+  }
+}
+
+/** 備用：每層 SVG + artwork.svg + 泡棉墊片 + 紙張清單 → ZIP（需先解壓縮才能上傳） */
+export function exportCutZip(layers: ExportLayer[], widthMm: number, heightMm: number, marks: MarkOptions, t: T) {
+  const files: Record<string, Uint8Array> = {};
+  for (const [name, s] of Object.entries(layerFiles(layers, widthMm, heightMm, marks))) files[name] = strToU8(s);
+  files['artwork.svg'] = strToU8(artworkSvg(layers, widthMm, heightMm, marks));
+  if (hasFoamPads(layers)) files['foam-pads.svg'] = strToU8(foamPadsSvg(foamPads(layers), widthMm, heightMm, marks));
   files['paper-list.txt'] = strToU8('﻿' + paperListText(layers, widthMm, heightMm, t));
   download(new Blob([zipSync(files) as BlobPart], { type: 'application/zip' }), 'paper-layers.zip');
 }

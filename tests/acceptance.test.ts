@@ -212,3 +212,74 @@ describe('小面積細節', () => {
     expect(run(img).layers.length).toBe(3);
   });
 });
+
+describe('匯出：單一多圖層 SVG', () => {
+  it('重複顏色自動微調 1 個 RGB 值，保持互不相同', async () => {
+    const { distinctColors } = await import('../src/lib/svg');
+    const r = distinctColors(['#E86F3D', '#e86f3d', '#FFFFFF', '#FFFFFF', '#E86F3D']);
+    expect(new Set(r.colors).size).toBe(5);
+    expect(r.adjusted).toEqual([1, 3, 4]);
+    expect(r.colors[1]).toBe('#E86F3E');
+    expect(r.colors[3]).toBe('#FFFFFE');
+  });
+
+  it('artwork.svg：每層一個 <g id="layer-NN">、填色互不相同、同一原點', async () => {
+    const { artworkSvg } = await import('../src/lib/exporters');
+    const { defaultMarks } = await import('../src/lib/svg');
+    const img = makeImage(300, 300, (x, y) => (Math.hypot(x - 150, y - 150) < 30 ? [20, 20, 20] : Math.hypot(x - 150, y - 150) < 100 ? [240, 130, 30] : [255, 244, 200]));
+    const res = run(img);
+    const layers = res.order.map((id) => res.layers.find((l) => l.id === id)!).map((l) => ({ layer: l, color: '#123456', name: 'x', foam: false }));
+    const svg = artworkSvg(layers, res.widthMm, res.heightMm, defaultMarks);
+    expect([...svg.matchAll(/<g id="layer-(\d\d)">/g)].map((m) => m[1])).toEqual(['01', '02', '03']);
+    const fills = [...svg.matchAll(/fill="(#[0-9A-F]{6})"/g)].map((m) => m[1]);
+    expect(new Set(fills).size).toBe(3);
+    expect(new Set([...svg.matchAll(/transform="([^"]+)"/g)].map((m) => m[1])).size).toBe(1);
+    expect(svg).not.toMatch(/<(filter|mask|clipPath|image|text)\b/);
+  });
+});
+
+describe('立體感：全域預設 + 逐層覆寫', () => {
+  it('pickFoam 規則', async () => {
+    const { pickFoam } = await import('../src/worker/pipeline');
+    const order = [10, 11, 12, 13, 14, 15, 16];
+    // 背景、主體（最大）、中層、…、頂部小細節
+    const area = [9000, 5000, 1500, 1200, 900, 300, 100];
+    expect([...pickFoam(order, area, 'flat')]).toEqual([]);
+    expect([...pickFoam(order, area, 'strong')].sort()).toEqual([11, 12, 13, 14, 15, 16]);
+    expect([...pickFoam(order, area, 'slight')].sort()).toEqual([11, 15, 16]);
+  });
+
+  it('預設組合套用到各層，覆寫只改該層，墊片只輸出於墊泡棉的層', () => {
+    const img = makeImage(300, 300, (x, y) => {
+      const d = Math.hypot(x - 150, y - 150);
+      return d < 20 ? [20, 20, 20] : d < 60 ? [200, 40, 40] : d < 110 ? [240, 130, 30] : [255, 244, 200];
+    });
+    const byOrder = (r: ReturnType<typeof run>) => r.order.map((id) => r.layers.find((l) => l.id === id)!);
+    const flat = byOrder(run(img));
+    expect(flat.every((l) => !l.foam && !l.foamD)).toBe(true);
+    const strong = byOrder(run(img, { ...defaultParams, depth: 'strong' }));
+    expect(strong.map((l) => l.foam)).toEqual([false, true, true, true]);
+    expect(strong.slice(1).every((l) => l.foamD)).toBe(true);
+    const id = strong[2].id;
+    const over = byOrder(run(img, { ...defaultParams, depth: 'strong', layerOpts: { [id]: { foam: false } } }));
+    expect(over.map((l) => l.foam)).toEqual([false, true, false, true]);
+    expect(over[2].foamAuto).toBe(true);
+    const noPads = byOrder(run(img, { ...defaultParams, depth: 'strong', foamOut: false }));
+    expect(noPads.every((l) => !l.foamD)).toBe(true);
+  });
+
+  it('全域保留鏤空，單層可覆寫成填滿', () => {
+    // 橘色圓上有 1.5mm² 左右的小孔（小於預設填補門檻）
+    const img = makeImage(300, 300, (x, y) => {
+      const d = Math.hypot(x - 150, y - 150);
+      if (d < 100 && Math.hypot(x - 150, y - 150) < 2) return [255, 244, 200];
+      return d < 100 ? [240, 130, 30] : [255, 244, 200];
+    });
+    const p = { ...defaultParams, bg: 'remove' as const, fillMm2: 5 };
+    const filled = run(img, p).layers[0];
+    const kept = run(img, { ...p, keepHoles: true }).layers[0];
+    expect(kept.areaMm2).toBeLessThan(filled.areaMm2);
+    const back = run(img, { ...p, keepHoles: true, layerOpts: { [kept.id]: { keepHoles: false } } }).layers[0];
+    expect(back.areaMm2).toBeCloseTo(filled.areaMm2, 3);
+  });
+});

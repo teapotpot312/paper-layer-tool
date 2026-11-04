@@ -184,13 +184,13 @@ export function App() {
     const byId = new Map(result.layers.map((l) => [l.id, l]));
     return result.order.map((id, i) => {
       const meta = doc.meta[id] ?? {};
-      return { layer: byId.get(id)!, color: meta.color ?? byId.get(id)!.hex, name: meta.name ?? t('layerN', { n: i + 1 }), visible: !meta.hidden };
+      return { layer: byId.get(id)!, color: meta.color ?? byId.get(id)!.hex, name: meta.name ?? t('layerN', { n: i + 1 }), visible: !meta.hidden, foamMm: meta.foamMm };
     });
   }, [result, doc.meta, t]);
 
   const exportLayers: ExportLayer[] = viewLayers
     .filter((l) => l.visible && l.layer.d)
-    .map((l) => ({ layer: l.layer, color: l.color, name: l.name, foam: !!doc.params.layerOpts[l.layer.id]?.foam }));
+    .map((l) => ({ layer: l.layer, color: l.color, name: l.name, foam: l.layer.foam }));
 
   const warnings = useMemo(() => {
     const w: string[] = [];
@@ -321,6 +321,8 @@ export function App() {
           onReorder={(order) => setParams({ order })}
           opts={doc.params.layerOpts}
           onOpts={onOpts}
+          globalHoles={doc.params.keepHoles}
+          foamMm={gap}
         />
 
         <footer className="bottom">

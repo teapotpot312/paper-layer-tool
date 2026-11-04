@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react';
 import { useT } from '../i18n';
 import type { Doc } from '../lib/project';
 import type { Params, PipelineResult } from '../lib/types';
@@ -169,6 +170,35 @@ function StackPanel({ doc, setParams }: Props) {
       />
       {p.mode === 'additive' && <div className="ctrl-help">{t('extendOnlyIndep')}</div>}
       <div className="ctrl">
+        <div className="ctrl-head"><label>{t('depth')}</label></div>
+        <div className="cards compact">
+          {(['flat', 'slight', 'strong'] as const).map((d) => (
+            <button key={d} type="button" className={'card' + (p.depth === d ? ' on' : '')} onClick={() => setParams({ depth: d })} aria-pressed={p.depth === d}>
+              <DepthIcon depth={d} />
+              <strong>{t(d === 'flat' ? 'depthFlat' : d === 'slight' ? 'depthSlight' : 'depthStrong')}</strong>
+              <small>{t(d === 'flat' ? 'depthFlatDesc' : d === 'slight' ? 'depthSlightDesc' : 'depthStrongDesc')}</small>
+            </button>
+          ))}
+        </div>
+        <div className="ctrl-help">{t('depthHelp')}</div>
+      </div>
+      <Toggle checked={p.keepHoles} onChange={(v) => setParams({ keepHoles: v })} label={t('keepHolesAll')} />
+      <div className="ctrl-help">{t('keepHolesAllHelp')}</div>
+      <Toggle checked={p.foamOut} onChange={(v) => setParams({ foamOut: v })} label={t('foamOut')} />
+      <div className="ctrl-help">{t('foamOutHelp')}</div>
+      <Slider
+        label={t('foamInset')}
+        help={t('foamInsetHelp')}
+        value={p.foamInsetMm}
+        min={0.5}
+        max={3}
+        step={0.1}
+        unit="mm"
+        format={(v) => v.toFixed(1)}
+        disabled={!p.foamOut}
+        onChange={(v) => setParams({ foamInsetMm: v })}
+      />
+      <div className="ctrl">
         <div className="ctrl-head"><label>{t('sort')}</label></div>
         <Segmented value={p.order ? ('' as 'light') : p.sort} label={t('sort')} options={[{ v: 'light', label: t('sortLight') }, { v: 'area', label: t('sortArea') }]} onChange={(v) => setParams({ sort: v, order: null })} />
         <div className="ctrl-help">{t('sortHint')}</div>
@@ -193,6 +223,21 @@ function StackIcon({ mode }: { mode: 'additive' | 'independent' }) {
       <rect x="22" y="4" width="16" height="10" rx="3" fill="#007a6e" />
     </svg>
   );
+}
+
+/** 側視圖：深色 = 紙，淺色方塊 = 泡棉 */
+function DepthIcon({ depth }: { depth: 'flat' | 'slight' | 'strong' }) {
+  const foam = depth === 'flat' ? [false, false, false] : depth === 'slight' ? [true, false, true] : [true, true, true];
+  let y = 30;
+  const parts: ReactElement[] = [<rect key="b" x="4" y={y} width="52" height="3" rx="1" fill="#7fd6cd" />];
+  const widths = [40, 28, 16];
+  widths.forEach((wd, i) => {
+    const x = 30 - wd / 2;
+    if (foam[i]) { y -= 6; parts.push(<rect key={'f' + i} x={x + 3} y={y + 1} width={wd - 6} height={5} fill="#e2c9a0" />); }
+    y -= 3;
+    parts.push(<rect key={'p' + i} x={x} y={y} width={wd} height="3" rx="1" fill={['#2cb8a9', '#00927f', '#007a6e'][i]} />);
+  });
+  return <svg viewBox="0 0 60 36" width="60" height="36" aria-hidden>{parts}</svg>;
 }
 
 function RegisterPanel({ doc, setDoc }: Props) {
