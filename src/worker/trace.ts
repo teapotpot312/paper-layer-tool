@@ -167,37 +167,159 @@ const fmt = (n: number) => {
   return s.indexOf('.') >= 0 ? s.replace(/\.?0+$/, '') : s;
 };
 
+/** 帶轉角標記的輪廓：corner[i] 為 true 的點是尖角，輸出時不平滑 */
+export interface Contour {
+  pts: Ring;
+  corner: boolean[];
+}
+
+/** 沿輪廓以固定間距重新取樣 */
+function resample(ring: Ring, step: number): Ring {
+  const n = ring.length;
+  const out: Ring = [];
+  let carry = 0;
+  for (let i = 0; i < n; i++) {
+    const a = ring[i], b = ring[(i + 1) % n];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    let t = carry;
+    while (t < len) {
+      out.push([a[0] + ((b[0] - a[0]) * t) / len, a[1] + ((b[1] - a[1]) * t) / len]);
+      t += step;
+    }
+    carry = t - len;
+  }
+  return out.length >= 3 ? out : ring;
+}
+
+/** 開放折線的 Douglas-Peucker，保留兩端點，回傳保留的索引 */
+function dpOpen(pts: Ring, a: number, b: number, eps: number, keep: Uint8Array) {
+  const n = pts.length;
+  const stack: [number, number][] = [[a, b]];
+  while (stack.length) {
+    const [s, e] = stack.pop()!;
+    if (e - s < 2) continue;
+    const A = pts[s % n], B = pts[e % n];
+    const dx = B[0] - A[0], dy = B[1] - A[1], len = Math.hypot(dx, dy);
+    let mi = -1, md = eps;
+    for (let i = s + 1; i < e; i++) {
+      const P = pts[i % n];
+      const d = len < 1e-9 ? Math.hypot(P[0] - A[0], P[1] - A[1]) : Math.abs(dy * P[0] - dx * P[1] + B[0] * A[1] - B[1] * A[0]) / len;
+      if (d > md) { md = d; mi = i; }
+    }
+    if (mi >= 0) {
+      keep[mi % n] = 1;
+      stack.push([s, mi], [mi, e]);
+    }
+  }
+}
+
 /**
- * 環 → SVG path（以中點二次貝茲平滑），轉角大於 cornerDeg 的點保持尖角。
- * scale: 像素 → mm。回傳 [d, 節點數]
+ * 保留尖角的輪廓整理（自行實作，概念類似 Potrace，但不使用其程式碼）：
+ * 1. 等距重新取樣；2. 依前後約 3px 的走向找出轉折大於 cornerDeg 的尖角；
+ * 3. 只平滑尖角之間的曲線（尖角固定不動）；4. 分段 Douglas-Peucker 簡化。
  */
-export function ringsToPath(rings: Ring[], scale: number, smooth = true, cornerDeg = 55): [string, number] {
+/** windowPx：判斷轉角時前後看多遠；原圖被放大時要跟著放大，否則像素階梯會被當成尖角 */
+export function refineRing(ring: Ring, smoothPx: number, eps: number, cornerDeg = 55, windowPx = 3): Contour {
+  const step = 0.7;
+  const pts = resample(ring, step);
+  const n = pts.length;
+  const k = Math.max(2, Math.round(windowPx / step));
+  const corner = new Array<boolean>(n).fill(false);
+  if (n >= 2 * k + 3) {
+    const turn = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const p = pts[i], a = pts[(i - k + n) % n], b = pts[(i + k) % n];
+      const ax = p[0] - a[0], ay = p[1] - a[1], bx = b[0] - p[0], by = b[1] - p[1];
+      const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+      turn[i] = la && lb ? Math.acos(Math.max(-1, Math.min(1, (ax * bx + ay * by) / (la * lb)))) : 0;
+    }
+    const thr = (cornerDeg * Math.PI) / 180;
+    // 局部極大值才算尖角（避免一個轉角被標成好幾個點）
+    for (let i = 0; i < n; i++) {
+      if (turn[i] < thr) continue;
+      let isMax = true;
+      for (let d = 1; d <= k && isMax; d++) if (turn[(i + d) % n] > turn[i] || turn[(i - d + n) % n] >= turn[i]) isMax = false;
+      corner[i] = isMax;
+    }
+  }
+  // 平滑：重複三點平均（約等於 sigma = sqrt(iter/2) 個取樣的高斯），尖角固定
+  const iters = Math.round(2 * (smoothPx / step) ** 2);
+  let xs = new Float64Array(n), ys = new Float64Array(n);
+  for (let i = 0; i < n; i++) { xs[i] = pts[i][0]; ys[i] = pts[i][1]; }
+  let nx = new Float64Array(n), ny = new Float64Array(n);
+  for (let it = 0; it < iters; it++) {
+    for (let i = 0; i < n; i++) {
+      if (corner[i]) { nx[i] = xs[i]; ny[i] = ys[i]; continue; }
+      const a = i === 0 ? n - 1 : i - 1, b = i === n - 1 ? 0 : i + 1;
+      nx[i] = (xs[a] + 2 * xs[i] + xs[b]) * 0.25;
+      ny[i] = (ys[a] + 2 * ys[i] + ys[b]) * 0.25;
+    }
+    [xs, nx] = [nx, xs];
+    [ys, ny] = [ny, ys];
+  }
+  const cur: Ring = new Array(n);
+  for (let i = 0; i < n; i++) cur[i] = [xs[i], ys[i]];
+  // 分段簡化：以尖角為分段點；沒有尖角時用最遠的兩點切成兩段
+  const keep = new Uint8Array(n);
+  const cs = corner.map((c, i) => (c ? i : -1)).filter((i) => i >= 0);
+  if (cs.length === 0) {
+    let far = 0, fd = -1;
+    for (let i = 1; i < n; i++) {
+      const d = (cur[i][0] - cur[0][0]) ** 2 + (cur[i][1] - cur[0][1]) ** 2;
+      if (d > fd) { fd = d; far = i; }
+    }
+    keep[0] = keep[far] = 1;
+    dpOpen(cur, 0, far, eps, keep);
+    dpOpen(cur, far, n, eps, keep);
+  } else {
+    for (const c of cs) keep[c] = 1;
+    for (let j = 0; j < cs.length; j++) {
+      const a = cs[j], b = j + 1 < cs.length ? cs[j + 1] : cs[0] + n;
+      dpOpen(cur, a, b, eps, keep);
+    }
+  }
+  const out: Contour = { pts: [], corner: [] };
+  for (let i = 0; i < n; i++)
+    if (keep[i]) {
+      out.pts.push(cur[i]);
+      out.corner.push(corner[i]);
+    }
+  return out;
+}
+
+/**
+ * 輪廓 → SVG path。smooth=false 輸出折線；否則以 Catmull-Rom 轉三次貝茲（曲線通過每個點），
+ * 尖角處切線不連續，保持尖銳。scale: 像素 → mm。回傳 [d, 節點數]
+ */
+export function ringsToPath(rings: (Ring | Contour)[], scale: number, smooth = true): [string, number] {
   const parts: string[] = [];
   let nodes = 0;
-  const cosT = Math.cos((cornerDeg * Math.PI) / 180);
   for (const r of rings) {
-    const n = r.length;
+    const c: Contour = Array.isArray(r) ? { pts: r, corner: r.map(() => false) } : r;
+    const n = c.pts.length;
     if (n < 3) continue;
-    const P = r.map(([x, y]) => [x * scale, y * scale] as Pt);
-    const mid = (i: number): Pt => {
-      const a = P[i % n], b = P[(i + 1) % n];
-      return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-    };
+    const P = c.pts.map(([x, y]) => [x * scale, y * scale] as Pt);
+    nodes += n;
     if (!smooth) {
       parts.push('M' + P.map((p) => fmt(p[0]) + ' ' + fmt(p[1])).join('L') + 'Z');
-      nodes += n;
       continue;
     }
-    const start = mid(n - 1);
-    let s = 'M' + fmt(start[0]) + ' ' + fmt(start[1]);
+    const dir = (a: Pt, b: Pt): Pt => {
+      const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      return [(b[0] - a[0]) / l, (b[1] - a[1]) / l];
+    };
+    let s = 'M' + fmt(P[0][0]) + ' ' + fmt(P[0][1]);
     for (let i = 0; i < n; i++) {
-      const prev = P[(i - 1 + n) % n], cur = P[i], nxt = P[(i + 1) % n];
-      const ax = cur[0] - prev[0], ay = cur[1] - prev[1], bx = nxt[0] - cur[0], by = nxt[1] - cur[1];
-      const cos = (ax * bx + ay * by) / ((Math.hypot(ax, ay) * Math.hypot(bx, by)) || 1);
-      const m = mid(i);
-      if (cos < cosT) s += 'L' + fmt(cur[0]) + ' ' + fmt(cur[1]) + 'L' + fmt(m[0]) + ' ' + fmt(m[1]);
-      else s += 'Q' + fmt(cur[0]) + ' ' + fmt(cur[1]) + ' ' + fmt(m[0]) + ' ' + fmt(m[1]);
-      nodes++;
+      const p0 = P[(i - 1 + n) % n], p1 = P[i], p2 = P[(i + 1) % n], p3 = P[(i + 2) % n];
+      const c1 = c.corner[i], c2 = c.corner[(i + 1) % n];
+      if (c1 && c2) {
+        s += 'L' + fmt(p2[0]) + ' ' + fmt(p2[1]);
+        continue;
+      }
+      const len = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / 3;
+      const d1 = c1 ? dir(p1, p2) : dir(p0, p2);
+      const d2 = c2 ? dir(p1, p2) : dir(p1, p3);
+      s += 'C' + fmt(p1[0] + d1[0] * len) + ' ' + fmt(p1[1] + d1[1] * len) + ' ' + fmt(p2[0] - d2[0] * len) + ' ' + fmt(p2[1] - d2[1] * len) + ' ' + fmt(p2[0]) + ' ' + fmt(p2[1]);
     }
     parts.push(s + 'Z');
   }

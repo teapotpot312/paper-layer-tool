@@ -84,7 +84,7 @@ export function App() {
   useEffect(() => {
     if (!image) return;
     const buf = image.data.data.slice().buffer;
-    workerRef.current?.postMessage({ type: 'image', buffer: buf, width: image.data.width, height: image.data.height }, [buf]);
+    workerRef.current?.postMessage({ type: 'image', buffer: buf, width: image.data.width, height: image.data.height, native: Math.max(image.origW, image.origH) }, [buf]);
   }, [image]);
 
   // 參數變動：先送低解析草稿（即時），停止操作後再送精確結果

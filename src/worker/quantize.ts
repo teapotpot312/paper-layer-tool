@@ -90,7 +90,8 @@ export function mergeClusters(clusters: Cluster[], threshold: number, maxCount =
         const d = deltaE(cs[i].lab, cs[j].lab);
         const small = Math.min(cs[i].w, cs[j].w) / total < 0.02;
         // 有效距離：小色塊被「放大」距離以受保護
-        const eff = small ? d / 0.6 : d;
+        // 小面積且對比明顯（例如黑眼睛）才保護；幾乎同色的小色塊（雜訊、顆粒）照常合併
+        const eff = small && d > 6 ? d / 0.6 : d;
         if (eff < best) { best = eff; bi = i; bj = j; }
       }
     if (bi < 0) break;
@@ -234,7 +235,8 @@ export function mergeGradients(cs: Cluster[], lab: Float32Array, flat: Uint8Arra
   const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
   for (let a = 0; a < K; a++)
     for (let b = a + 1; b < K; b++) {
-      const thr = Math.max(15, 0.3 * Math.sqrt(Math.min(count[a], count[b])));
+      // 真正的漸層交界很長；只靠零星相鄰串起來的不算，避免一路連鎖併進別的顏色
+      const thr = Math.max(40, 0.8 * Math.sqrt(Math.min(count[a], count[b])));
       if (adj[a * K + b] > thr) parent[find(a)] = find(b);
     }
   const groups = new Map<number, Cluster>();
@@ -315,6 +317,36 @@ function neighborLabels(labels: Int16Array, support: Uint8Array, w: number, h: n
   }
 }
 
+type Pt3 = [number, number, number];
+
+/** 點 P 到三角形 ABC 的最短距離（Ericson, Real-Time Collision Detection 5.1.5） */
+function triDist(P: Pt3, A: Pt3, B: Pt3, C: Pt3): number {
+  const sub = (u: Pt3, v: Pt3): Pt3 => [u[0] - v[0], u[1] - v[1], u[2] - v[2]];
+  const dot = (u: Pt3, v: Pt3) => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+  const at = (u: Pt3, v: Pt3, w: Pt3, s: number, t: number): Pt3 => [u[0] + v[0] * s + w[0] * t, u[1] + v[1] * s + w[1] * t, u[2] + v[2] * s + w[2] * t];
+  const ab = sub(B, A), ac = sub(C, A), ap = sub(P, A);
+  const d1 = dot(ab, ap), d2 = dot(ac, ap);
+  let q: Pt3;
+  if (d1 <= 0 && d2 <= 0) q = A;
+  else {
+    const bp = sub(P, B), d3 = dot(ab, bp), d4 = dot(ac, bp);
+    const cp = sub(P, C), d5 = dot(ab, cp), d6 = dot(ac, cp);
+    const vc = d1 * d4 - d3 * d2, vb = d5 * d2 - d1 * d6, va = d3 * d6 - d5 * d4;
+    if (d3 >= 0 && d4 <= d3) q = B;
+    else if (d6 >= 0 && d5 <= d6) q = C;
+    else if (vc <= 0 && d1 >= 0 && d3 <= 0) q = at(A, ab, ac, d1 / (d1 - d3), 0);
+    else if (vb <= 0 && d2 >= 0 && d6 <= 0) q = at(A, ab, ac, 0, d2 / (d2 - d6));
+    else if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) {
+      const t = (d4 - d3) / (d4 - d3 + (d5 - d6));
+      q = [B[0] + (C[0] - B[0]) * t, B[1] + (C[1] - B[1]) * t, B[2] + (C[2] - B[2]) * t];
+    } else {
+      const den = 1 / (va + vb + vc);
+      q = at(A, ab, ac, vb * den, vc * den);
+    }
+  }
+  return Math.hypot(P[0] - q[0], P[1] - q[1], P[2] - q[2]);
+}
+
 /**
  * 細線色救援：只出現在細線上的顏色（例如描邊、手寫字）永遠不是「色塊內部」，不會被取樣到。
  * 找出既不接近任何主色、也無法解釋成附近色塊混色的邊緣像素，另外分群補進調色盤。
@@ -339,6 +371,12 @@ function rescueLineColors(cs: Cluster[], lab: Float32Array, flat: Uint8Array, da
       if (flat[i] || Number.isNaN(lab[i * 3])) continue;
       if (near[i] < 15) continue;
       neighborLabels(labels, support, w, h, x, y, 3, cand);
+      // 亮度落在兩側色塊之間 → 是兩色交界的混色（例如深藍線條旁的灰邊）；真正的細線會比兩側都暗或都亮
+      if (cand.length >= 2) {
+        let lo = Infinity, hi = -Infinity;
+        for (const c of cand) { lo = Math.min(lo, palette[c].lab[0]); hi = Math.max(hi, palette[c].lab[0]); }
+        if (lab[i * 3] > lo - 4 && lab[i * 3] < hi + 4) continue;
+      }
       const [, bd] = explain(lab, i, cand, palette, labels[i], Infinity);
       if (bd > 8) picked.push(i);
     }
@@ -350,11 +388,17 @@ function rescueLineColors(cs: Cluster[], lab: Float32Array, flat: Uint8Array, da
   });
   const extra = kmeans(labs, rgbs, Math.min(4, Math.ceil(picked.length / 200)), 99)
     .filter((c) => c.w >= Math.max(20, n * 0.0003))
-    // 必須是全新的顏色：跟現有主色差很多，也不在任何兩個主色的混色線上
+    // 必須是全新的顏色：跟現有主色差很多，也不是任兩個或任三個主色的混色
+    // （反鋸齒是在 RGB 裡混色，三色交會處的混色會落在三色圍成的三角形內）
     .filter((c) => {
       if (palette.some((p) => deltaE(c.lab, p.lab) < 20)) return false;
       for (let a = 0; a < palette.length; a++)
         for (let b = a + 1; b < palette.length; b++) if (segDist(c.lab, palette[a].lab, palette[b].lab) < 10) return false;
+      const rgb = (k: Cluster): Pt3 => [k.rgbSum[0] / k.w, k.rgbSum[1] / k.w, k.rgbSum[2] / k.w];
+      const P = rgb(c), C = cs.map(rgb);
+      for (let a = 0; a < C.length; a++)
+        for (let b = a + 1; b < C.length; b++)
+          for (let d = b + 1; d < C.length; d++) if (triDist(P, C[a], C[b], C[d]) < 14) return false;
       return true;
     })
     .map((c) => ({ ...c, line: true }));

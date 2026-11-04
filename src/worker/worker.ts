@@ -23,7 +23,7 @@ function flush() {
 self.onmessage = (ev: MessageEvent) => {
   const msg = ev.data;
   if (msg.type === 'image') {
-    pipe.setImage({ data: new Uint8ClampedArray(msg.buffer), width: msg.width, height: msg.height });
+    pipe.setImage({ data: new Uint8ClampedArray(msg.buffer), width: msg.width, height: msg.height }, msg.native ?? Infinity);
   } else if (msg.type === 'run') {
     pending = { params: msg.params, quality: msg.quality, seq: msg.seq };
     if (!scheduled) {

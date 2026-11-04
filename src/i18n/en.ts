@@ -21,7 +21,7 @@ export const en: Dict = {
   pClean: 'Clean up',
   minArea: 'Smallest piece', minAreaHelp: 'Specks smaller than this merge into the neighboring color',
   fill: 'Fill small holes', fillHelp: 'Holes smaller than this are filled in, easier to cut',
-  smooth: 'Smoothness', smoothHelp: 'Smoother outlines and fewer nodes; too high loses detail',
+  smooth: 'Edge smoothness', smoothHelp: 'Higher = smoother edges with fewer bumps; sharp corners are kept. Very high values remove hairline details',
   minWidth: 'Min. cuttable width', minWidthHelp: 'Thinner lines or holes may not cut cleanly and are marked red',
   thinFound: '{n} areas are too thin to cut (marked red)', thinNone: 'No areas too thin 👍',
   fix: 'Thin areas', fixOff: 'Ignore', fixThicken: 'Thicken', fixRemove: 'Remove',

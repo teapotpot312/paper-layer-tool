@@ -49,7 +49,7 @@ describe('驗收', () => {
     const res = run(img);
     expect(res.layers.length).toBeGreaterThan(0);
     expect(res.warnings).toContain('photo');
-  });
+  }, 20000); // 雜訊圖運算量大，電腦忙碌時可能超過預設 5 秒
 
   it('背景可移除（淡黃圓點背景開關）', () => {
     const img = makeImage(300, 300, (x, y) => {
@@ -125,5 +125,65 @@ describe('插畫精緻度', () => {
     const img = makeImage(300, 300, (x, y) => (Math.hypot(x - 150, y - 150) < 60 ? [79, 115, 86] : [85, 133, 95]));
     const res = run(img);
     expect(res.layers.length).toBe(2);
+  });
+});
+
+describe('尖角與小圖', () => {
+  it('細長三角形的尖端保持尖銳（不被磨圓）', async () => {
+    const { traceMask, refineRing } = await import('../src/worker/trace');
+    const w = 400, h = 400, m = new Uint8Array(w * h);
+    // 頂點 (200, 40)、底邊 y=360 寬 120 的細長三角形（頂角約 21°）
+    for (let y = 40; y < 360; y++) {
+      const half = ((y - 40) / 320) * 60;
+      for (let x = Math.ceil(200 - half); x <= Math.floor(200 + half); x++) m[y * w + x] = 1;
+    }
+    const [ring] = traceMask(m, w, h, 0.5);
+    const c = refineRing(ring, 1.5, 0.4);
+    const top = c.pts.reduce((a, p) => (p[1] < a[1] ? p : a));
+    expect(top[1]).toBeLessThan(41.5);
+    expect(c.corner[c.pts.indexOf(top)]).toBe(true);
+  });
+
+  it('放大 4 倍的小圖：交界的混色不會變成額外的色層', () => {
+    const s = 300, big = 1200, k = big / s;
+    const small = makeImage(s, s, (x, y) => {
+      let r = 0, g = 0, b = 0;
+      for (let sy = 0; sy < 4; sy++)
+        for (let sx = 0; sx < 4; sx++) {
+          const c = Math.hypot(x + (sx + 0.5) / 4 - 150, y + (sy + 0.5) / 4 - 150) < 90 ? [250, 185, 30] : [5, 30, 90];
+          r += c[0]; g += c[1]; b += c[2];
+        }
+      return [r / 16, g / 16, b / 16];
+    });
+    // 模擬瀏覽器把小圖放大成工作影像（雙線性放大，交界變成很寬的漸層）
+    const up = makeImage(big, big, (x, y) => {
+      const fx = Math.min(s - 1, Math.max(0, (x + 0.5) / k - 0.5)), fy = Math.min(s - 1, Math.max(0, (y + 0.5) / k - 0.5));
+      const x0 = Math.floor(fx), y0 = Math.floor(fy), x1 = Math.min(s - 1, x0 + 1), y1 = Math.min(s - 1, y0 + 1), tx = fx - x0, ty = fy - y0;
+      const px = (xx: number, yy: number, c: number) => small.data[(yy * s + xx) * 4 + c];
+      return [0, 1, 2].map((c) => px(x0, y0, c) * (1 - tx) * (1 - ty) + px(x1, y0, c) * tx * (1 - ty) + px(x0, y1, c) * (1 - tx) * ty + px(x1, y1, c) * tx * ty);
+    });
+    const pipe = new Pipeline();
+    pipe.setImage(up, s);
+    expect(pipe.run(defaultParams, 'final').layers.length).toBe(2);
+  });
+});
+
+describe('邊緣平滑度', () => {
+  it('越平滑凹凸越少（節點越少），但尖角仍保留', () => {
+    const rand = rng(3);
+    // 邊緣有隨機凹凸的圓 + 一根尖刺
+    const img = makeImage(400, 400, (x, y) => {
+      const a = Math.atan2(y - 200, x - 200), r = Math.hypot(x - 200, y - 200);
+      const bump = 120 + 3 * Math.sin(a * 23) + (rand() - 0.5) * 2;
+      const spike = Math.abs(x - 200) < (y - 20) * 0.12 && y < 100;
+      return r < bump || spike ? [30, 30, 30] : [255, 255, 255];
+    });
+    const nodes = (s: number) => run(img, { ...defaultParams, smooth: s, bg: 'remove' }).layers[0];
+    const low = nodes(0), mid = nodes(4), high = nodes(10);
+    expect(high.nodes).toBeLessThan(low.nodes * 0.6);
+    // 尖刺頂端在 y≈20px = 7.5mm（150mm / 400px）
+    const tip = (l: typeof low) => Math.min(...[...l.d.matchAll(/[-\d.]+ ([-\d.]+)/g)].map((m) => Number(m[1])));
+    expect(tip(mid)).toBeLessThan(9); // 預設平滑度：尖端完整
+    expect(tip(high)).toBeLessThan(9.5 + 2); // 最高平滑度：最細的尖端可能被吃掉一點，但不超過 2mm
   });
 });

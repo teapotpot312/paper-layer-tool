@@ -23,7 +23,7 @@ export const zhTW = {
   pClean: '清理',
   minArea: '最小碎片', minAreaHelp: '小於這個面積的碎點會併到旁邊的顏色',
   fill: '填補小洞', fillHelp: '小於這個面積的洞會被補起來，比較好剪',
-  smooth: '平滑度', smoothHelp: '輪廓越平滑、節點越少；太高會失去細節',
+  smooth: '邊緣平滑度', smoothHelp: '數字越大，邊緣越平順、不規則的凹凸越少，尖角仍會保留；太高會吃掉很細的線條',
   minWidth: '最小可切寬度', minWidthHelp: '比這更細的線條或小孔，刀具可能切不動，會用紅色標示',
   thinFound: '有 {n} 處太細，可能切不動（紅色標示）', thinNone: '沒有過細的區域 👍',
   fix: '過細處理', fixOff: '略過', fixThicken: '自動加粗', fixRemove: '移除',

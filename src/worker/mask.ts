@@ -189,7 +189,8 @@ export function fillHoles(mask: Uint8Array, w: number, h: number, maxArea: numbe
 }
 
 /** 3×3 多數決濾波（標籤圖平滑，等同對所有色層同時做開閉運算） */
-export function modeFilter(labels: Int16Array, w: number, h: number, passes: number, nLabels: number): Int16Array {
+/** strong：一般多數決（周圍 5 個以上同色就改），會抹平邊界凹凸；否則只清孤立雜點 */
+export function modeFilter(labels: Int16Array, w: number, h: number, passes: number, nLabels: number, strong = false): Int16Array {
   let src = labels;
   const cnt = new Int32Array(nLabels + 1);
   for (let p = 0; p < passes; p++) {
@@ -203,7 +204,7 @@ export function modeFilter(labels: Int16Array, w: number, h: number, passes: num
         let best = src[i], bc = 0;
         for (let l = 0; l <= nLabels; l++) if (l !== src[i] + 1 && cnt[l] > bc) { bc = cnt[l]; best = l - 1; }
         // 只清掉幾乎被單一顏色包圍的孤立雜點（反鋸齒雜邊已在分色時處理），細線與轉角都保留
-        if (own <= 2 && bc >= 7) dst[i] = best;
+        if (strong ? bc >= 5 && bc > own : own <= 2 && bc >= 7) dst[i] = best;
       }
     src = dst;
   }

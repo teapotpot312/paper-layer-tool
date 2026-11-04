@@ -2,7 +2,7 @@ import { deltaE, rgbToLab, toHex } from '../lib/color';
 import type { LayerResult, Params, PipelineResult, Quality, RGBAImage } from '../lib/types';
 import { absorbSmall, components, dilate, downscale, erode, fillHoles, median3, modeFilter, thinRegions } from './mask';
 import { assignLabels, buildPalette, type PaletteColor } from './quantize';
-import { ringArea, ringsToPath, simplify, traceMask, type Ring } from './trace';
+import { refineRing, ringArea, ringsToPath, simplify, traceMask, type Ring } from './trace';
 
 const RES: Record<Quality, number> = { draft: 480, final: 1200 };
 
@@ -11,10 +11,13 @@ const RES: Record<Quality, number> = { draft: 480, final: 1200 };
  */
 export class Pipeline {
   private base: RGBAImage | null = null;
+  /** 原圖長邊像素；小圖被放大成工作影像時，分色要在原始解析度上做 */
+  private native = Infinity;
   private cache = new Map<string, unknown>();
 
-  setImage(img: RGBAImage) {
+  setImage(img: RGBAImage, nativeMax = Infinity) {
     this.base = img;
+    this.native = nativeMax;
     this.cache.clear();
   }
 
@@ -42,8 +45,9 @@ export class Pipeline {
     const tm: Record<string, number> = {};
     const mark = (k: string) => (tm[k] = Math.round(performance.now() - t0));
 
-    // 調色盤在 600px 上取樣（細節足夠，又不會太慢）
-    const pre600 = this.memo(`p600:${p.blur}`, () => median3(downscale(base, 600), p.blur));
+    // 調色盤在 600px（或更小的原圖解析度）上取樣：放大過的影像邊緣是假漸層，會誤導分色
+    const palRes = Math.min(600, this.native);
+    const pre600 = this.memo(`p600:${p.blur}`, () => median3(downscale(base, palRes), p.blur));
     const { palette, effectiveK } = this.memo(`pal:${quantKey}`, () => buildPalette(pre600, p.k, p.merge));
     // 照片判斷：顏色種類非常多，或分層後與原圖的平均色差仍很大
     const photo = this.memo(`photo:${quantKey}`, () => uniqueColors(small.data) > 9000 || meanError(pre300.data, palette) > 9);
@@ -55,15 +59,23 @@ export class Pipeline {
     const { width: w, height: h } = img;
     const pre = this.memo(`pre:${res}|${p.blur}`, () => median3(img, p.blur));
     mark("palette");
-    const raw = this.memo(`lab:${res}|${quantKey}`, () => assignLabels(pre.data, w, h, palette));
+    // 原圖比工作解析度小：在原圖解析度分配顏色（邊緣判斷才準），再平滑放大標籤圖
+    const raw = this.memo(`lab:${res}|${quantKey}`, () => {
+      // 只放大不到 2 倍時直接在工作解析度分配（邊緣較平滑）；放大更多時原圖的邊緣資訊才值得保留
+      if (this.native * 2 > Math.max(w, h)) return assignLabels(pre.data, w, h, palette);
+      const nat = median3(downscale(base, this.native), p.blur);
+      return upsampleLabels(assignLabels(nat.data, nat.width, nat.height, palette), nat.width, nat.height, w, h);
+    });
     const pxPerMm = w / p.widthMm;
     const nL = palette.length;
 
     // ⑤ 清理（平滑 + 碎片併入鄰近色）
     const passes = p.smooth === 0 ? 0 : 1 + Math.round(p.smooth / 5);
+    // 邊緣平滑度高時，色塊邊界先用較強的多數決抹平凹凸（會犧牲 1–2px 的細線）
+    const strong = p.smooth >= 7;
     const minPx = p.minAreaMm2 * pxPerMm * pxPerMm;
-    const labels = this.memo(`clean:${res}|${quantKey}|${passes}|${minPx.toFixed(1)}`, () =>
-      absorbSmall(modeFilter(raw, w, h, passes, nL), w, h, minPx, nL),
+    const labels = this.memo(`clean:${res}|${quantKey}|${passes}|${strong}|${minPx.toFixed(1)}`, () =>
+      absorbSmall(modeFilter(raw, w, h, passes, nL, strong), w, h, minPx, nL),
     );
 
     const counts = new Int32Array(nL);
@@ -110,8 +122,19 @@ export class Pipeline {
 
     const r = (p.minWidthMm / 2) * pxPerMm;
     const resScale = res === RES.final ? Math.min(1, w / 1200 + 0.2) : 0.5;
-    const sigma = (0.6 + p.smooth * 0.12) * Math.max(0.5, resScale);
-    const eps = (0.35 + p.smooth * 0.1) * Math.max(0.5, resScale);
+    // 取輪廓只做極輕微的模糊（去掉像素階梯），平滑交給 refineRing：只平滑曲線、保留尖角
+    const sigma = 0.5;
+    // 邊緣平滑度 0~10：平滑範圍 0.3~6.3px；越平滑時判斷轉角看得越遠、門檻越高，只保留明顯的尖角
+    const smoothPx = (0.3 + p.smooth * 0.6) * Math.max(0.5, resScale);
+    const eps = (0.2 + p.smooth * 0.06) * Math.max(0.5, resScale);
+    const cornerDeg = 50 + p.smooth * 4;
+    const cornerWin = 3 + p.smooth * 0.4;
+    // 原圖被放大的倍率：原圖一個像素的階梯要被平滑掉，而不是當成尖角
+    const up = Math.max(1, Math.max(w, h) / this.native);
+    const trace = (mask: Uint8Array) => {
+      const raw = traceMask(mask, w, h, sigma).filter((rg) => Math.abs(ringArea(rg)) > 2);
+      return { raw, contours: raw.map((rg) => refineRing(rg, smoothPx * up, eps * Math.sqrt(up), cornerDeg, cornerWin * up)) };
+    };
     const mm = 1 / pxPerMm;
 
     mark('compose');
@@ -130,15 +153,15 @@ export class Pipeline {
       }
       let area = 0;
       for (let i = 0; i < N; i++) area += m[i];
-      const rings = traceMask(m, w, h, sigma).map((rg) => simplify(rg, eps)).filter((rg) => Math.abs(ringArea(rg)) > 2);
-      const [d, nodes] = ringsToPath(rings, mm, p.smooth > 0);
+      const { raw: rings, contours } = trace(m);
+      const [d, nodes] = ringsToPath(contours, mm, p.smooth > 0);
       const thinRings = traceMask(thin, hw, hh, 0.5).map((rg) => simplify(rg, 0.6 / hs)).filter((rg) => Math.abs(ringArea(rg)) > 1 / hs);
       const [thinD] = ringsToPath(thinRings, mm * hs, false);
       const thinCount = components(thin, hw, hh).areas.length;
       let foamD = "";
       if (p.layerOpts[id]?.foam) {
         const fm = erode(m, w, h, 1 * pxPerMm);
-        [foamD] = ringsToPath(traceMask(fm, w, h, sigma).map((rg) => simplify(rg, eps)), mm, true);
+        [foamD] = ringsToPath(trace(fm).contours, mm, true);
       }
       const c = palette[id].rgb;
       layers.push({
@@ -170,6 +193,35 @@ export class Pipeline {
       timings: tm,
     };
   }
+}
+
+/**
+ * 標籤圖平滑放大：每個目標像素以雙線性權重在四個來源像素之間投票，
+ * 邊界因此是平滑的斜線而不是放大後的鋸齒方塊。
+ */
+export function upsampleLabels(src: Int16Array, sw: number, sh: number, w: number, h: number): Int16Array {
+  const out = new Int16Array(w * h);
+  const lbl = [0, 0, 0, 0], wt = [0, 0, 0, 0];
+  for (let y = 0; y < h; y++) {
+    const fy = Math.min(sh - 1, Math.max(0, ((y + 0.5) * sh) / h - 0.5));
+    const y0 = Math.floor(fy), y1 = Math.min(sh - 1, y0 + 1), ty = fy - y0;
+    for (let x = 0; x < w; x++) {
+      const fx = Math.min(sw - 1, Math.max(0, ((x + 0.5) * sw) / w - 0.5));
+      const x0 = Math.floor(fx), x1 = Math.min(sw - 1, x0 + 1), tx = fx - x0;
+      lbl[0] = src[y0 * sw + x0]; wt[0] = (1 - tx) * (1 - ty);
+      lbl[1] = src[y0 * sw + x1]; wt[1] = tx * (1 - ty);
+      lbl[2] = src[y1 * sw + x0]; wt[2] = (1 - tx) * ty;
+      lbl[3] = src[y1 * sw + x1]; wt[3] = tx * ty;
+      let best = lbl[0], bw = -1;
+      for (let a = 0; a < 4; a++) {
+        let sum = 0;
+        for (let b = 0; b < 4; b++) if (lbl[b] === lbl[a]) sum += wt[b];
+        if (sum > bw) { bw = sum; best = lbl[a]; }
+      }
+      out[y * w + x] = best;
+    }
+  }
+  return out;
 }
 
 /** 2×2 降採樣（兩個以上為 1 即為 1） */
