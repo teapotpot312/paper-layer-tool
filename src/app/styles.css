@@ -249,14 +249,17 @@ th { color: var(--text-2); font-weight: 600; font-size: 13px; }
 /* 手機：上下結構 */
 @media (max-width: 760px) {
   .app {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: 56px auto minmax(320px, 1fr) auto auto;
     grid-template-areas: 'top' 'left' 'center' 'right' 'bottom';
     height: auto; min-height: 100vh; overflow: visible;
   }
   .brand span { display: none; }
   .top { position: sticky; top: 0; z-index: 20; padding: 0 10px; }
-  .top-actions { margin-left: 0; }
+  /* 工具按鈕放不下時可左右捲動，「匯出」按鈕固定在右側一定看得到 */
+  .top-actions { margin-left: 0; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .top-actions .sep { display: none; }
+  .btn.make { flex: none; padding: 8px 14px; font-size: 15px; }
   .left { flex-direction: column; border-right: 0; border-bottom: 1px solid var(--border); }
   .toolbar { flex-direction: row; width: 100%; overflow-x: auto; border-right: 0; padding: 6px; }
   .tool { flex: 1 0 60px; }

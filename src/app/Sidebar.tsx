@@ -18,19 +18,17 @@ interface Props {
   showThin: boolean;
   setShowThin: (v: boolean) => void;
   onUpload: () => void;
-  onExport: () => void;
   hasImage: boolean;
   thinTotal: number;
 }
 
 /** 依設定的必要性排序：① 分色 ② 樣式 是必做，③ 清理 ④ 對位 可略過 */
-const TOOLS: { id: PanelId | 'upload' | 'export'; icon: string; key: 'tUpload' | 'tLayers' | 'tClean' | 'tStack' | 'tRegister' | 'tExport' }[] = [
+const TOOLS: { id: PanelId | 'upload'; icon: string; key: 'tUpload' | 'tLayers' | 'tClean' | 'tStack' | 'tRegister' }[] = [
   { id: 'upload', icon: 'upload', key: 'tUpload' },
   { id: 'layers', icon: 'layers', key: 'tLayers' },
   { id: 'stack', icon: 'stack', key: 'tStack' },
   { id: 'clean', icon: 'clean', key: 'tClean' },
   { id: 'register', icon: 'target', key: 'tRegister' },
-  { id: 'export', icon: 'download', key: 'tExport' },
 ];
 
 export function Sidebar(props: Props) {
@@ -47,7 +45,6 @@ export function Sidebar(props: Props) {
             disabled={!hasImage && tool.id !== 'upload'}
             onClick={() => {
               if (tool.id === 'upload') props.onUpload();
-              else if (tool.id === 'export') props.onExport();
               else setPanel(panel === tool.id ? null : tool.id);
             }}
           >

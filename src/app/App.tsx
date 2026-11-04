@@ -246,8 +246,8 @@ export function App() {
             <IconButton icon="help" label="?" onClick={() => setTour(true)} showLabel={false} />
           </div>
           <button type="button" className="btn primary make" disabled={!result} onClick={() => setExportOpen(true)}>
+            <Icon name="download" size={18} />
             <span>{t('makeIt')}</span>
-            <Icon name="play" size={16} />
           </button>
         </header>
 
@@ -261,7 +261,6 @@ export function App() {
           showThin={showThin}
           setShowThin={setShowThin}
           onUpload={() => fileRef.current?.click()}
-          onExport={() => setExportOpen(true)}
           hasImage={!!image}
           thinTotal={thinTotal}
         />

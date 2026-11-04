@@ -1,6 +1,6 @@
 export const zhTW = {
   appName: '紙雕分層工具',
-  undo: '復原', redo: '重做', makeIt: '製作 Make It',
+  undo: '復原', redo: '重做', makeIt: '匯出',
   save: '存檔', open: '開啟', newImage: '換圖', theme: '亮/暗', language: 'English',
   // 空狀態
   dropTitle: '把圖片拖到這裡，或點擊上傳',
@@ -10,7 +10,7 @@ export const zhTW = {
   tourSampleHint: '還沒有圖片？先用內建的範例插畫走一次完整流程。',
   privacy: '圖片只在你的瀏覽器裡處理，不會上傳到任何地方。',
   // 工具列
-  tUpload: '上傳', tLayers: '分色', tClean: '清理', tStack: '樣式', tRegister: '對位', tExport: '匯出',
+  tUpload: '上傳', tLayers: '分色', tClean: '清理', tStack: '樣式', tRegister: '對位',
   // 分層面板
   pLayers: '分色', pLayersSub: '決定成品大小，以及要分成幾種顏色。每種顏色就是一張紙、一層。',
   width: '成品寬度', widthHelp: '做好之後的實際寬度，所有 mm 設定都依這個換算',
@@ -86,7 +86,7 @@ export const zhTW = {
   wWorker: '處理時發生錯誤：{msg}',
   matNote: '切割範圍以 Design Space 實際顯示為準（依機型可能不同）。',
   // 匯出
-  exportTitle: '製作 Make It',
+  exportTitle: '匯出',
   modeA: '純切割', modeADesc: '一個多圖層 SVG，上傳一次就會依顏色拆成各層（建議）',
   modeB: '列印再切割', modeBDesc: 'Print Then Cut：先印再切，輸出高解析 PNG',
   modeC: '說明書與預覽', modeCDesc: '可列印的 PDF 製作說明書與立體預覽圖',
@@ -115,7 +115,7 @@ export const zhTW = {
   // 導覽
   tour1t: '① 上傳圖片', tour1: '拖曳或點擊上傳一張插畫，工具會自動依顏色分層。',
   tour2t: '② 拖一兩個滑桿', tour2: '左側依序設定：① 分色（分成幾種顏色）→ ② 樣式（怎麼疊起來）；③ 清理、④ 對位可略過。右側可改色、排序、隱藏圖層。',
-  tour3t: '③ 按「製作」', tour3: '下載 artwork.svg，在 Cricut Design Space 上傳這一個檔案，就會依顏色拆成各層。',
+  tour3t: '③ 按「匯出」', tour3: '下載 artwork.svg，在 Cricut Design Space 上傳這一個檔案，就會依顏色拆成各層。',
   next: '下一步', start: '我自己上傳', neverShow: '不再顯示',
   restore: '要還原上次的作品嗎？', restoreYes: '還原', restoreNo: '不用',
   saved: '已存檔', loadFail: '專案檔讀取失敗',
