@@ -187,3 +187,28 @@ describe('邊緣平滑度', () => {
     expect(tip(high)).toBeLessThan(9.5 + 2); // 最高平滑度：最細的尖端可能被吃掉一點，但不超過 2mm
   });
 });
+
+describe('小面積細節', () => {
+  it('細細一圈的獨特顏色（例如藍色虹膜）會保留', () => {
+    // 白底上的黃色眼斑，中間一圈 3px 寬的藍色虹膜包著黑色瞳孔
+    const img = makeImage(600, 600, (x, y) => {
+      const d = Math.hypot(x - 300, y - 300);
+      if (d < 9) return [15, 15, 30];
+      if (d < 12) return [10, 135, 210];
+      if (d < 60) return [250, 185, 55];
+      return [253, 253, 253];
+    });
+    const hexes = run(img).layers.map((l) => l.hex);
+    expect(hexes.some((h) => h.startsWith('#0') && parseInt(h.slice(5, 7), 16) > 180)).toBe(true);
+  });
+
+  it('低對比的柔邊陰影（ΔE≈5）在預設參數下保留', () => {
+    const img = makeImage(300, 300, (x, y) => {
+      // 白色身體，右半邊有淺灰陰影，交界柔和 3px
+      if (Math.hypot(x - 150, y - 150) > 120) return [10, 24, 69];
+      const t = Math.min(1, Math.max(0, (x - 170) / 3));
+      return [246 - 13 * t, 246 - 13 * t, 247 - 12 * t];
+    });
+    expect(run(img).layers.length).toBe(3);
+  });
+});

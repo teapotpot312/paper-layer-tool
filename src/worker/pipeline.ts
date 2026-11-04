@@ -75,7 +75,7 @@ export class Pipeline {
     const strong = p.smooth >= 7;
     const minPx = p.minAreaMm2 * pxPerMm * pxPerMm;
     const labels = this.memo(`clean:${res}|${quantKey}|${passes}|${strong}|${minPx.toFixed(1)}`, () =>
-      absorbSmall(modeFilter(raw, w, h, passes, nL, strong), w, h, minPx, nL),
+      absorbSmall(modeFilter(raw, w, h, passes, nL, strong), w, h, minPx, nL, palette.map((c) => c.lab)),
     );
 
     const counts = new Int32Array(nL);

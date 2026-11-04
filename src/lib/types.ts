@@ -35,7 +35,7 @@ export interface Params {
 
 export const defaultParams: Params = {
   k: null,
-  merge: 8,
+  merge: 4,
   blur: 0,
   bg: 'keep',
   widthMm: 150,

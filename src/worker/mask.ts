@@ -1,5 +1,6 @@
 import type { RGBAImage } from '../lib/types';
 import { bbox } from './trace';
+import { deltaE, type Lab } from '../lib/color';
 
 /** 盒狀降採樣到長邊 maxSide */
 export function downscale(img: RGBAImage, maxSide: number): RGBAImage {
@@ -218,9 +219,10 @@ function neighbors8(p: number, x: number, w: number): number[] {
 }
 
 /**
- * 移除小碎片：同色連通區域（8 連通，斜線不會被拆碎）面積 < minArea 者，併入邊界接觸最多的鄰近色（而非留白）。
+ * 移除小碎片：同色連通區域（8 連通，斜線不會被拆碎）面積 < minArea 者併入鄰近色（而非留白）。
+ * 有提供各色 Lab 時，同時考慮接觸長度與色差：細長的淺綠碎片會併回旁邊的綠色，而不是被四周的白底吃掉。
  */
-export function absorbSmall(labels: Int16Array, w: number, h: number, minArea: number, nLabels: number): Int16Array {
+export function absorbSmall(labels: Int16Array, w: number, h: number, minArea: number, nLabels: number, colors?: Lab[]): Int16Array {
   const out = labels.slice();
   if (minArea <= 1) return out;
   const comp = new Int32Array(w * h).fill(-1);
@@ -255,7 +257,11 @@ export function absorbSmall(labels: Int16Array, w: number, h: number, minArea: n
       for (const q of nb) if (q >= 0 && q < out.length && out[q] >= 0 && out[q] !== lab) tally[out[q]]++;
     }
     let best = -1, bc = 0;
-    for (let l = 0; l < nLabels; l++) if (tally[l] > bc) { bc = tally[l]; best = l; }
+    for (let l = 0; l < nLabels; l++) {
+      if (!tally[l]) continue;
+      const score = colors ? tally[l] / (1 + deltaE(colors[lab], colors[l]) / 12) ** 2 : tally[l];
+      if (score > bc) { bc = score; best = l; }
+    }
     if (best >= 0) for (const p of px) out[p] = best;
   }
   return out;

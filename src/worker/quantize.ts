@@ -188,14 +188,14 @@ export function buildPalette(img: { data: Uint8ClampedArray; width: number; heig
   const { labs, rgbs } = sample(filtered);
   let cs: Cluster[];
   if (k == null) {
-    cs = mergeGradients(kmeans(labs, rgbs, 16), lab, flat, img.width, img.height);
+    cs = mergeGradients(addOutliers(kmeans(labs, rgbs, 16), lab, img.data, img.width), lab, flat, img.width, img.height, merge);
     const total = cs.reduce((s, c) => s + c.w, 0);
-    // 極少量的平坦色多半是雜訊
-    cs = cs.filter((c) => c.w >= total * 0.0004);
+    // 極少量的平坦色多半是雜訊；但顏色很獨特的（例如小小的藍色眼睛）要保留
+    cs = cs.filter((c) => c.w >= total * 0.0004 || cs.every((o) => o === c || deltaE(o.lab, c.lab) > 25));
     if (useFlat) cs = rescueLineColors(cs, lab, flat, img.data, img.width, img.height);
     cs = mergeClusters(cs, merge, 12, 2);
   } else {
-    cs = mergeGradients(kmeans(labs, rgbs, k), lab, flat, img.width, img.height);
+    cs = mergeGradients(kmeans(labs, rgbs, k), lab, flat, img.width, img.height, merge);
     if (useFlat) cs = rescueLineColors(cs, lab, flat, img.data, img.width, img.height);
     cs = mergeClusters(cs, merge, k, Math.min(2, k));
   }
@@ -208,7 +208,7 @@ export function buildPalette(img: { data: Uint8ClampedArray; width: number; heig
  * 代表它們是同一塊漸層被 K-means 切開，直接合併。真正的色塊交界是銳利邊緣，不會被合併。
  */
 const GRAD_STEP = 1;
-export function mergeGradients(cs: Cluster[], lab: Float32Array, flat: Uint8Array, w: number, h: number): Cluster[] {
+export function mergeGradients(cs: Cluster[], lab: Float32Array, flat: Uint8Array, w: number, h: number, merge = Infinity): Cluster[] {
   const K = cs.length;
   if (K < 2) return cs;
   const pal = cs.map((c) => ({ lab: c.lab })) as PaletteColor[];
@@ -236,8 +236,12 @@ export function mergeGradients(cs: Cluster[], lab: Float32Array, flat: Uint8Arra
   for (let a = 0; a < K; a++)
     for (let b = a + 1; b < K; b++) {
       // 真正的漸層交界很長；只靠零星相鄰串起來的不算，避免一路連鎖併進別的顏色
-      const thr = Math.max(40, 0.8 * Math.sqrt(Math.min(count[a], count[b])));
-      if (adj[a * K + b] > thr) parent[find(a)] = find(b);
+      // 明顯的漸層（平滑交界達色塊邊長 2.2 倍以上）一定合併；
+      // 柔邊的色塊（例如衣服上的淺灰陰影）只在色差小於「合併相近色」時才合併，讓使用者決定
+      const side = Math.sqrt(Math.min(count[a], count[b]));
+      const strong = adj[a * K + b] > Math.max(40, 2.2 * side);
+      const weak = adj[a * K + b] > Math.max(40, 0.8 * side) && deltaE(cs[a].lab, cs[b].lab) < merge;
+      if (strong || weak) parent[find(a)] = find(b);
     }
   const groups = new Map<number, Cluster>();
   cs.forEach((c, i) => {
@@ -250,6 +254,49 @@ export function mergeGradients(cs: Cluster[], lab: Float32Array, flat: Uint8Arra
     g.w = wt;
   });
   return [...groups.values()];
+}
+
+/**
+ * 遺漏色補抓：面積很小、又很細的獨特顏色（例如巨嘴鳥藍色的虹膜）幾乎沒有「色塊內部」像素，取樣不到。
+ * 掃描所有像素，找出離所有色群都很遠、又不是任兩個色群混色（反鋸齒）的像素，數量夠就另外分群補進來。
+ */
+function addOutliers(cs: Cluster[], lab: Float32Array, data: Uint8ClampedArray, w: number): Cluster[] {
+  const n = lab.length / 3;
+  const rgb = cs.map((c): Pt3 => [c.rgbSum[0] / c.w, c.rgbSum[1] / c.w, c.rgbSum[2] / c.w]);
+  const cand = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    if (Number.isNaN(lab[i * 3])) continue;
+    const P: Lab = [lab[i * 3], lab[i * 3 + 1], lab[i * 3 + 2]];
+    let bd = Infinity;
+    for (const c of cs) bd = Math.min(bd, deltaE(P, c.lab));
+    if (bd < 18) continue;
+    let blend = false;
+    for (let a = 0; a < cs.length && !blend; a++)
+      for (let b = a + 1; b < cs.length; b++) if (segDist(P, cs[a].lab, cs[b].lab) < 8) { blend = true; break; }
+    // 三色交會處的反鋸齒（在 RGB 裡是三色圍成的三角形內）
+    const Q: Pt3 = [data[i * 4], data[i * 4 + 1], data[i * 4 + 2]];
+    for (let a = 0; a < rgb.length && !blend; a++)
+      for (let b = a + 1; b < rgb.length && !blend; b++)
+        for (let d = b + 1; d < rgb.length; d++) if (triDist(Q, rgb[a], rgb[b], rgb[d]) < 10) { blend = true; break; }
+    if (!blend) cand[i] = 1;
+  }
+  // 要成塊：8 鄰居中至少 4 個也是相近的候選色（排除 1px 的混色邊與零星雜點）
+  const far: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (!cand[i]) continue;
+    const x = i % w;
+    let same = 0;
+    for (const j of [i - w - 1, i - w, i - w + 1, i - 1, i + 1, i + w - 1, i + w, i + w + 1]) {
+      if (j < 0 || j >= n || !cand[j] || Math.abs((j % w) - x) > 1) continue;
+      if ((lab[i * 3] - lab[j * 3]) ** 2 + (lab[i * 3 + 1] - lab[j * 3 + 1]) ** 2 + (lab[i * 3 + 2] - lab[j * 3 + 2]) ** 2 < 100) same++;
+    }
+    if (same >= 4) far.push(i);
+  }
+  if (far.length < Math.max(20, n * 0.0003)) return cs;
+  const fl = new Float32Array(far.length * 3), fr = new Uint8Array(far.length * 3);
+  far.forEach((i, j) => { fl.set(lab.subarray(i * 3, i * 3 + 3), j * 3); fr.set([data[i * 4], data[i * 4 + 1], data[i * 4 + 2]], j * 3); });
+  const extra = kmeans(fl, fr, Math.min(4, Math.ceil(far.length / 100)), 77).filter((c) => c.w >= 20);
+  return [...cs, ...extra];
 }
 
 function nearest(L: number, A: number, B: number, palette: PaletteColor[]): [number, number] {
@@ -443,6 +490,58 @@ export function assignLabels(data: Uint8ClampedArray, w: number, h: number, pale
       }
       const [best] = explain(lab, i, cand, palette, labels[i], dist[i]);
       out[i] = best;
+    }
+  return cleanFringes(out, lab, flat, w, h, palette);
+}
+
+/**
+ * 雜邊清除：夾在兩種顏色之間、本身又剛好是這兩色混色的細窄色帶（例如綠葉與白底之間的米黃邊），
+ * 改歸給較接近的一側。真正的細線只貼著一種底色（綠葉上的咖啡捲線、牌子上的字），不受影響。
+ */
+function cleanFringes(labels: Int16Array, lab: Float32Array, flat: Uint8Array, w: number, h: number, palette: PaletteColor[]): Int16Array {
+  const out = labels.slice();
+  const R = 2;
+  const others: number[] = [];
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x, c = labels[i];
+      if (c < 0 || flat[i]) continue;
+      others.length = 0;
+      let ownFlat = false;
+      for (let dy = -R; dy <= R && !ownFlat; dy++) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= h) continue;
+        for (let dx = -R; dx <= R; dx++) {
+          const xx = x + dx;
+          if (xx < 0 || xx >= w) continue;
+          const j = yy * w + xx, l = labels[j];
+          if (l === c) { if (flat[j]) { ownFlat = true; break; } continue; }
+          if (l >= 0 && !others.includes(l)) others.push(l);
+        }
+      }
+      // 附近有自己顏色的色塊內部 → 是真正的色塊，不是雜邊
+      if (ownFlat || others.length < 2) continue;
+      const P: Lab = [lab[i * 3], lab[i * 3 + 1], lab[i * 3 + 2]];
+      const C = palette[c].lab;
+      const dc = deltaE(P, C);
+      let best = -1, bd = Infinity;
+      for (let a = 0; a < others.length; a++)
+        for (let b = a + 1; b < others.length; b++) {
+          const A = palette[others[a]].lab, B = palette[others[b]].lab;
+          // 這個顏色本身必須是兩側的「中段」混色；太接近其中一側（例如淺綠對深綠＋白）是真正的顏色
+          if (segDist(C, A, B) > 18) continue;
+          const u0 = B[0] - A[0], u1 = B[1] - A[1], u2 = B[2] - A[2];
+          const tc = ((C[0] - A[0]) * u0 + (C[1] - A[1]) * u1 + (C[2] - A[2]) * u2) / (u0 * u0 + u1 * u1 + u2 * u2 || 1);
+          if (tc < 0.2 || tc > 0.8) continue;
+          const d = segDist(P, A, B);
+          if (d < bd) {
+            const v0 = B[0] - A[0], v1 = B[1] - A[1], v2 = B[2] - A[2];
+            const t = ((P[0] - A[0]) * v0 + (P[1] - A[1]) * v1 + (P[2] - A[2]) * v2) / (v0 * v0 + v1 * v1 + v2 * v2 || 1);
+            bd = d;
+            best = t < 0.5 ? others[a] : others[b];
+          }
+        }
+      if (best >= 0 && bd < Math.max(8, dc + 4)) out[i] = best;
     }
   return out;
 }
