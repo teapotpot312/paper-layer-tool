@@ -118,7 +118,7 @@ export function App() {
     (patch: Partial<Params>) => {
       setDoc((d) => {
         const quant = QUANT_KEYS.some((k) => k in patch && patch[k] !== d.params[k]);
-        const params = { ...d.params, ...patch, ...(quant ? { order: null, layerOpts: {} } : {}) };
+        const params = { ...d.params, ...patch, ...(quant ? { order: null, layerOpts: {}, merges: {} } : {}) };
         return { ...d, params, meta: quant ? {} : d.meta };
       });
       if (QUANT_KEYS.some((k) => k in patch)) setSelected(null);
@@ -214,6 +214,22 @@ export function App() {
   const onMeta = (id: number, patch: LayerMeta) => setDoc((d) => ({ ...d, meta: { ...d.meta, [id]: { ...d.meta[id], ...patch } } }));
   const onOpts = (id: number, patch: LayerOpts) =>
     setParams({ layerOpts: { ...doc.params.layerOpts, [id]: { ...doc.params.layerOpts[id], ...patch } } });
+
+  // 合併圖層：其餘各層併入第一個（最下面的）圖層，沿用它的顏色
+  const onMerge = (ids: number[]) => {
+    const [target, ...rest] = ids;
+    const merges: Record<number, number> = { ...doc.params.merges };
+    for (const id of rest) {
+      merges[id] = target;
+      for (const k of Object.keys(merges)) if (merges[Number(k)] === id) merges[Number(k)] = target;
+    }
+    setParams({ merges });
+    setSelected(target);
+  };
+  const onUnmerge = (target: number) => {
+    const merges = Object.fromEntries(Object.entries(doc.params.merges).filter(([, v]) => v !== target));
+    setParams({ merges });
+  };
 
   // 累加模式下同一處過細會出現在多層，以子路徑去重後計數
   const thinTotal = useMemo(() => new Set(result?.layers.flatMap((l) => l.thinD.split('M').filter(Boolean)) ?? []).size, [result]);
@@ -321,6 +337,8 @@ export function App() {
           opts={doc.params.layerOpts}
           onOpts={onOpts}
           globalHoles={doc.params.keepHoles}
+          onMerge={onMerge}
+          onUnmerge={onUnmerge}
           foamMm={gap}
         />
 

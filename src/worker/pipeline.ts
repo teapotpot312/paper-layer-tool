@@ -74,9 +74,17 @@ export class Pipeline {
     // 邊緣平滑度高時，色塊邊界先用較強的多數決抹平凹凸（會犧牲 1–2px 的細線）
     const strong = p.smooth >= 7;
     const minPx = p.minAreaMm2 * pxPerMm * pxPerMm;
-    const labels = this.memo(`clean:${res}|${quantKey}|${passes}|${strong}|${minPx.toFixed(1)}`, () =>
+    const cleaned = this.memo(`clean:${res}|${quantKey}|${passes}|${strong}|${minPx.toFixed(1)}`, () =>
       absorbSmall(modeFilter(raw, w, h, passes, nL, strong), w, h, minPx, nL, palette.map((c) => c.lab)),
     );
+    // 使用者指定的合併：把來源顏色的像素改歸目標圖層（目標保留自己的顏色）
+    const labels = applyMerges(cleaned, p.merges, nL);
+    const mergedInto = new Map<number, number[]>();
+    for (const [from, to] of Object.entries(p.merges ?? {})) {
+      const f = Number(from), t = resolveMerge(p.merges, to);
+      if (f === t || f >= nL || t >= nL) continue;
+      mergedInto.set(t, [...(mergedInto.get(t) ?? []), f]);
+    }
 
     const counts = new Int32Array(nL);
     for (let i = 0; i < labels.length; i++) if (labels[i] >= 0) counts[labels[i]]++;
@@ -182,6 +190,7 @@ export class Pipeline {
         foamAuto,
         foamD,
         isBg: id === bgId,
+        merged: mergedInto.get(id) ?? [],
       });
     }
 
@@ -342,5 +351,28 @@ export function pickFoam(order: number[], area: number[], depth: Depth): Set<num
   out.add(order[subj]);
   const topStart = order.length - Math.max(1, Math.round((order.length - 1) / 3));
   for (let i = Math.max(1, topStart); i < order.length; i++) if (i !== subj && area[i] < area[subj] * 0.25) out.add(order[i]);
+  return out;
+}
+
+/** 沿著合併鏈找到最終的目標圖層（防止循環） */
+export function resolveMerge(merges: Record<number, number> | undefined, id: number): number {
+  let cur = Number(id);
+  for (let i = 0; i < 64 && merges && merges[cur] != null && merges[cur] !== cur; i++) cur = merges[cur];
+  return cur;
+}
+
+/** 依使用者指定的合併重新標記像素；沒有合併時直接回傳原陣列 */
+export function applyMerges(labels: Int16Array, merges: Record<number, number> | undefined, nL: number): Int16Array {
+  if (!merges || !Object.keys(merges).length) return labels;
+  const map = new Int16Array(nL);
+  let any = false;
+  for (let i = 0; i < nL; i++) {
+    const t = resolveMerge(merges, i);
+    map[i] = t >= 0 && t < nL ? t : i;
+    if (map[i] !== i) any = true;
+  }
+  if (!any) return labels;
+  const out = new Int16Array(labels.length);
+  for (let i = 0; i < labels.length; i++) out[i] = labels[i] >= 0 ? map[labels[i]] : labels[i];
   return out;
 }

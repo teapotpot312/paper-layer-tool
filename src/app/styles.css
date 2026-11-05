@@ -289,3 +289,12 @@ th { color: var(--text-2); font-weight: 600; font-size: 13px; }
 @media (max-width: 760px) { .sg-grid { grid-template-columns: 1fr 1fr; } }
 .card .card-now { color: var(--primary); font-weight: 600; grid-column: 2; }
 .panel-sub { margin: -4px 0 14px; color: var(--text-2); font-size: 13px; line-height: 1.5; }
+.layers-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.layers-head h2 { margin-bottom: 8px; }
+.merge-bar { background: var(--primary-soft); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 10px; font-size: 13px; }
+.merge-bar p { margin: 0 0 4px; }
+.merge-bar .btn-row { margin: 4px 0 0; }
+.merge-check { width: 18px; height: 18px; accent-color: var(--primary); margin: 0 2px; }
+.layer-row.checked { border-color: var(--primary); background: var(--primary-soft); }
+.tag.merged { background: #e3ecff; color: #2a4a9a; }
+.merged-note { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 6px 0; }

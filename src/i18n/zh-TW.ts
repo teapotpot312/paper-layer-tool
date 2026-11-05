@@ -70,6 +70,10 @@ export const zhTW = {
   holesRow: '鏤空', holesKeep: '保留鏤空', holesFill: '填滿',
   layerFoam: '本層泡棉厚度', layerFoamHelp: '只影響立體預覽',
   colorNote: '改色只改預覽與建議紙色，不會改變切割形狀',
+  mergeStart: '合併圖層', mergeHint: '勾選要合併成同一層的顏色（2 層以上）。',
+  mergeInto: '合併後是一層，使用「{name}」的顏色與位置，之後可再點色塊改色。',
+  mergeDo: '合併 {n} 層', mergeCancel: '取消',
+  mergedTag: '合併 {n} 色', mergedNote: '這一層由 {n} 種顏色合併而成。', unmerge: '拆開',
   noLayers: '上傳圖片後，這裡會出現每一層',
   // 底部
   zoom: '縮放', fit: '符合視窗', view: '視圖', vFlat: '平面', vLayers: '分層', vStack: '立體', original: '原圖',

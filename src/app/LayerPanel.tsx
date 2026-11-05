@@ -19,6 +19,9 @@ interface Props {
   globalHoles: boolean;
   /** 全域泡棉厚度（預覽） */
   foamMm: number;
+  /** 合併圖層（由下到上的 id，第一個為目標） */
+  onMerge: (ids: number[]) => void;
+  onUnmerge: (id: number) => void;
 }
 
 const isOverridden = (o: LayerOpts | undefined, foamMm: number | undefined) =>
@@ -34,7 +37,7 @@ function Override({ onReset }: { onReset: () => void }) {
   );
 }
 
-export function LayerPanel({ layers, selected, onSelect, onMeta, onReorder, opts, onOpts, globalHoles, foamMm }: Props) {
+export function LayerPanel({ layers, selected, onSelect, onMeta, onReorder, opts, onOpts, globalHoles, foamMm, onMerge, onUnmerge }: Props) {
   const t = useT();
   const [dragId, setDragId] = useState<number | null>(null);
   const [overId, setOverId] = useState<number | null>(null);
@@ -42,6 +45,12 @@ export function LayerPanel({ layers, selected, onSelect, onMeta, onReorder, opts
   const top = [...layers].reverse(); // 面板由上到下顯示（同 Design Space）
   const sel = layers.find((l) => l.layer.id === selected);
   const so: LayerOpts = (sel && opts[sel.layer.id]) || {};
+  // 合併模式：勾選兩層以上合併成一層
+  const [merging, setMerging] = useState(false);
+  const [checked, setChecked] = useState<Set<number>>(new Set());
+  const toggle = (id: number) => setChecked((c) => { const n = new Set(c); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const picked = layers.filter((l) => checked.has(l.layer.id)); // 由下到上
+  const endMerge = () => { setMerging(false); setChecked(new Set()); };
 
   const drop = (targetId: number) => {
     if (dragId == null || dragId === targetId) return;
@@ -60,7 +69,23 @@ export function LayerPanel({ layers, selected, onSelect, onMeta, onReorder, opts
 
   return (
     <aside className="right" aria-label={t('layersTitle')}>
-      <h2>{t('layersTitle')}</h2>
+      <div className="layers-head">
+        <h2>{t('layersTitle')}</h2>
+        {layers.length > 1 && !merging && (
+          <button type="button" className="chip" onClick={() => { setMerging(true); onSelect(null); }}>{t('mergeStart')}</button>
+        )}
+      </div>
+      {merging && (
+        <div className="merge-bar">
+          <p>{picked.length < 2 ? t('mergeHint') : t('mergeInto', { name: picked[0].name })}</p>
+          <div className="btn-row">
+            <button type="button" className="btn primary" disabled={picked.length < 2} onClick={() => { onMerge(picked.map((l) => l.layer.id)); endMerge(); }}>
+              {t('mergeDo', { n: picked.length })}
+            </button>
+            <button type="button" className="btn" onClick={endMerge}>{t('mergeCancel')}</button>
+          </div>
+        </div>
+      )}
       {!layers.length && <p className="note">{t('noLayers')}</p>}
       <ul className="layer-list">
         {top.map((l) => {
@@ -69,21 +94,25 @@ export function LayerPanel({ layers, selected, onSelect, onMeta, onReorder, opts
           return (
             <li
               key={l.layer.id}
-              className={'layer-row' + (isSel ? ' sel' : '') + (overId === l.layer.id ? ' over' : '') + (l.visible ? '' : ' hidden')}
-              draggable
+              className={'layer-row' + (isSel ? ' sel' : '') + (merging && checked.has(l.layer.id) ? ' checked' : '') + (overId === l.layer.id ? ' over' : '') + (l.visible ? '' : ' hidden')}
+              draggable={!merging}
               onDragStart={(e) => { setDragId(l.layer.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(l.layer.id)); }}
               onDragOver={(e) => { e.preventDefault(); setOverId(l.layer.id); }}
               onDragLeave={() => setOverId(null)}
               onDrop={(e) => { e.preventDefault(); drop(l.layer.id); setOverId(null); setDragId(null); }}
               onDragEnd={() => { setDragId(null); setOverId(null); }}
-              onClick={() => onSelect(isSel ? null : l.layer.id)}
+              onClick={() => (merging ? toggle(l.layer.id) : onSelect(isSel ? null : l.layer.id))}
               onKeyDown={(e) => {
                 if (e.altKey && e.key === 'ArrowUp') { e.preventDefault(); move(l.layer.id, 1); }
                 if (e.altKey && e.key === 'ArrowDown') { e.preventDefault(); move(l.layer.id, -1); }
               }}
               tabIndex={0}
             >
-              <span className="grip" title={t('dragHint')}><Icon name="grip" size={18} /></span>
+              {merging ? (
+                <input type="checkbox" className="merge-check" checked={checked.has(l.layer.id)} aria-label={t('mergeStart')} onClick={(e) => e.stopPropagation()} onChange={() => toggle(l.layer.id)} />
+              ) : (
+                <span className="grip" title={t('dragHint')}><Icon name="grip" size={18} /></span>
+              )}
               <button
                 type="button"
                 className="icon-btn"
@@ -111,6 +140,7 @@ export function LayerPanel({ layers, selected, onSelect, onMeta, onReorder, opts
                     {l.name}
                     {l.layer.isBg && <em className="tag">{t('bgTag')}</em>}
                     {l.layer.foam && <em className="tag foam">{t('foamTag')}</em>}
+                    {l.layer.merged.length > 0 && <em className="tag merged">{t('mergedTag', { n: l.layer.merged.length + 1 })}</em>}
                     {isOverridden(opts[l.layer.id], l.foamMm) && <span className="ovr-dot" title={t('overridden')} aria-label={t('overridden')} />}
                   </span>
                 )}
@@ -131,6 +161,12 @@ export function LayerPanel({ layers, selected, onSelect, onMeta, onReorder, opts
             {sel.color} · RGB({hexToRgb(sel.color).join(', ')})
           </p>
           <p className="ctrl-help">{t('colorNote')}</p>
+          {sel.layer.merged.length > 0 && (
+            <div className="merged-note">
+              <span>{t('mergedNote', { n: sel.layer.merged.length + 1 })}</span>
+              <button type="button" className="chip" onClick={() => onUnmerge(sel.layer.id)}>{t('unmerge')}</button>
+            </div>
+          )}
           <p className="ctrl-help">{t('overrideHint')}</p>
           <Slider
             label={t('extra')}

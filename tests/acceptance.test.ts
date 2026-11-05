@@ -283,3 +283,31 @@ describe('立體感：全域預設 + 逐層覆寫', () => {
     expect(back.areaMm2).toBeCloseTo(filled.areaMm2, 3);
   });
 });
+
+describe('自行指定合併圖層', () => {
+  const img = makeImage(300, 300, (x, y) => {
+    const d = Math.hypot(x - 150, y - 150);
+    return d < 20 ? [20, 20, 20] : d < 60 ? [200, 40, 40] : d < 110 ? [240, 130, 30] : [255, 244, 200];
+  });
+  const p = { ...defaultParams, mode: 'independent' as const, extendMm: 0 };
+
+  it('合併後少一層，面積相加、沿用目標顏色，並記錄來源', () => {
+    const base = run(img, p);
+    expect(base.layers.length).toBe(4);
+    const red = base.layers.find((l) => l.hex.startsWith('#C8'))!;
+    const orange = base.layers.find((l) => l.hex.startsWith('#F0'))!;
+    const merged = run(img, { ...p, merges: { [red.id]: orange.id } });
+    expect(merged.layers.length).toBe(3);
+    const o = merged.layers.find((l) => l.id === orange.id)!;
+    expect(o.hex).toBe(orange.hex);
+    expect(o.merged).toEqual([red.id]);
+    expect(o.areaMm2).toBeCloseTo(orange.areaMm2 + red.areaMm2, -1);
+  });
+
+  it('合併鏈會一路併到最終目標，循環不會當機', async () => {
+    const { resolveMerge } = await import('../src/worker/pipeline');
+    expect(resolveMerge({ 1: 2, 2: 3 }, 1)).toBe(3);
+    expect(resolveMerge({ 1: 2, 2: 1 }, 1)).toBeTypeOf('number');
+    expect(run(img, { ...p, merges: { 0: 1, 1: 0 } }).layers.length).toBeGreaterThan(0);
+  });
+});

@@ -42,6 +42,8 @@ export interface Params {
   /** 泡棉墊片內縮量 (mm) */
   foamInsetMm: number;
   layerOpts: Record<number, LayerOpts>;
+  /** 使用者指定的合併：來源圖層 id → 目標圖層 id */
+  merges: Record<number, number>;
 }
 
 export const defaultParams: Params = {
@@ -64,6 +66,7 @@ export const defaultParams: Params = {
   foamOut: true,
   foamInsetMm: 1,
   layerOpts: {},
+  merges: {},
 };
 
 export interface LayerResult {
@@ -84,6 +87,8 @@ export interface LayerResult {
   /** 泡棉墊片輪廓（墊泡棉且開啟墊片輸出時才有） */
   foamD: string;
   isBg: boolean;
+  /** 被使用者合併進這一層的其他圖層 id */
+  merged: number[];
 }
 
 export interface PipelineResult {
