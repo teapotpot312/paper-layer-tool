@@ -4,7 +4,7 @@ import { hexToRgb } from '../lib/color';
 import type { LayerMeta } from '../lib/project';
 import type { LayerOpts } from '../lib/types';
 import type { ViewLayer } from './CanvasView';
-import { Segmented, Slider } from './controls';
+import { Help, Segmented, Slider } from './controls';
 import { Icon } from './Icon';
 
 interface Props {
@@ -22,6 +22,8 @@ interface Props {
   /** 合併圖層（由下到上的 id，第一個為目標） */
   onMerge: (ids: number[]) => void;
   onUnmerge: (id: number) => void;
+  /** 刪除圖層：該層的區域改由下一層補上（最底層則直接移除） */
+  onDelete: (id: number) => void;
 }
 
 const isOverridden = (o: LayerOpts | undefined, foamMm: number | undefined) =>
@@ -37,7 +39,7 @@ function Override({ onReset }: { onReset: () => void }) {
   );
 }
 
-export function LayerPanel({ layers, selected, onSelect, onMeta, onReorder, opts, onOpts, globalHoles, foamMm, onMerge, onUnmerge }: Props) {
+export function LayerPanel({ layers, selected, onSelect, onMeta, onReorder, opts, onOpts, globalHoles, foamMm, onMerge, onUnmerge, onDelete }: Props) {
   const t = useT();
   const [dragId, setDragId] = useState<number | null>(null);
   const [overId, setOverId] = useState<number | null>(null);
@@ -69,6 +71,7 @@ export function LayerPanel({ layers, selected, onSelect, onMeta, onReorder, opts
 
   return (
     <aside className="right" aria-label={t('layersTitle')}>
+      {!sel && (<>
       <div className="layers-head">
         <h2>{t('layersTitle')}</h2>
         {layers.length > 1 && !merging && (
@@ -154,20 +157,28 @@ export function LayerPanel({ layers, selected, onSelect, onMeta, onReorder, opts
           );
         })}
       </ul>
+      </>)}
       {sel && (
         <div className="sel-panel">
-          <h3>{t('selLayer')}：{sel.name}</h3>
-          <p className="mono">
-            {sel.color} · RGB({hexToRgb(sel.color).join(', ')})
-          </p>
-          <p className="ctrl-help">{t('colorNote')}</p>
+          <button type="button" className="btn back" onClick={() => onSelect(null)}>
+            <Icon name="back" size={18} /><span>{t('back')}</span>
+          </button>
+          <div className="detail-head">
+            <label className="swatch big" style={{ background: sel.color }} title={t('changeColor')}>
+              <input type="color" value={sel.color.toLowerCase()} aria-label={t('changeColor')} onChange={(e) => onMeta(sel.layer.id, { color: e.target.value.toUpperCase() })} />
+            </label>
+            <div>
+              <h3>{sel.name}</h3>
+              <p className="mono">{sel.color} · RGB({hexToRgb(sel.color).join(', ')}) <Help text={t('colorNote')} /></p>
+            </div>
+          </div>
           {sel.layer.merged.length > 0 && (
             <div className="merged-note">
               <span>{t('mergedNote', { n: sel.layer.merged.length + 1 })}</span>
               <button type="button" className="chip" onClick={() => onUnmerge(sel.layer.id)}>{t('unmerge')}</button>
             </div>
           )}
-          <p className="ctrl-help">{t('overrideHint')}</p>
+          <h4 className="detail-sub">{t('layerSettings')} <Help text={t('overrideHint')} /></h4>
           <Slider
             label={t('extra')}
             help={t('extendHelp')}
@@ -217,6 +228,10 @@ export function LayerPanel({ layers, selected, onSelect, onMeta, onReorder, opts
               extra={sel.foamMm !== undefined ? <Override onReset={() => onMeta(sel.layer.id, { foamMm: undefined })} /> : null}
             />
           )}
+          <button type="button" className="btn danger" onClick={() => onDelete(sel.layer.id)}>
+            <Icon name="trash" size={18} /><span>{t('deleteLayer')}</span>
+          </button>
+          <p className="note">{t('deleteNote')}</p>
         </div>
       )}
     </aside>

@@ -44,6 +44,8 @@ export interface Params {
   layerOpts: Record<number, LayerOpts>;
   /** 使用者指定的合併：來源圖層 id → 目標圖層 id */
   merges: Record<number, number>;
+  /** 使用者刪除的圖層：圖層 id → 由哪一層補上（-1 = 直接移除） */
+  deleted: Record<number, number>;
 }
 
 export const defaultParams: Params = {
@@ -67,6 +69,7 @@ export const defaultParams: Params = {
   foamInsetMm: 1,
   layerOpts: {},
   merges: {},
+  deleted: {},
 };
 
 export interface LayerResult {

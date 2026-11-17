@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useT } from '../i18n';
 
 /** 首次使用導覽；最後一步可直接用內建範例圖體驗完整流程 */
-export function Tour({ onClose, onSample, onUpload }: { onClose: (forever: boolean) => void; onSample: () => void; onUpload: () => void }) {
+export function Tour({ onClose, onSample, onUpload }: { onClose: () => void; onSample: () => void; onUpload: () => void }) {
   const t = useT();
   const [i, setI] = useState(0);
   const steps = [
@@ -24,7 +24,7 @@ export function Tour({ onClose, onSample, onUpload }: { onClose: (forever: boole
           </div>
         )}
         <footer>
-          <button type="button" className="btn link" onClick={() => onClose(true)}>{t('neverShow')}</button>
+          <button type="button" className="btn link" onClick={onClose}>{t('neverShow')}</button>
           <button type="button" className={'btn' + (last ? '' : ' primary')} onClick={() => (last ? onUpload() : setI(i + 1))}>{last ? t('start') : t('next')}</button>
         </footer>
       </div>

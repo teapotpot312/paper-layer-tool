@@ -7,7 +7,7 @@ import { autosave, defaultDoc, loadAutosave, lsGet, lsSet, parseProject, toProje
 import type { LayerOpts, Params, PipelineResult } from '../lib/types';
 import PipelineWorker from '../worker/worker?worker&inline';
 import { CanvasView, type CanvasHandle, type ViewLayer, type ViewMode } from './CanvasView';
-import { IconButton, Segmented, Slider } from './controls';
+import { Help, IconButton, Segmented } from './controls';
 import { ExportDialog } from './ExportDialog';
 import { Icon } from './Icon';
 import { LayerPanel } from './LayerPanel';
@@ -16,10 +16,14 @@ import { Tour } from './Tour';
 import { useHistory } from './useHistory';
 
 /** 這些參數改變時調色盤會重算，圖層身分隨之改變，需重設圖層設定 */
+/** 立體預覽的預設泡棉厚度（mm）；個別圖層可在圖層頁覆寫 */
+const FOAM_MM = 3;
+
 const QUANT_KEYS: (keyof Params)[] = ['k', 'merge', 'blur'];
 
 export function App() {
-  const [lang, setLang] = useState<Lang>(() => (lsGet('lang') === 'en' ? 'en' : 'zh-TW'));
+  // 預設英文；只有使用者自己切換過語言才記住（新的儲存鍵，舊版自動存下的語言不再沿用）
+  const [lang, setLang] = useState<Lang>(() => (lsGet('uiLang') === 'zh-TW' ? 'zh-TW' : 'en'));
   const t = useMemo(() => makeT(lang), [lang]);
   const [theme, setTheme] = useState<string>(() => lsGet('theme') ?? 'auto');
   const hist = useHistory<Doc>(defaultDoc);
@@ -36,10 +40,11 @@ export function App() {
   const [showOriginal, setShowOriginal] = useState(false);
   const [showThin, setShowThin] = useState(true);
   const [exportOpen, setExportOpen] = useState(false);
-  const [gap, setGap] = useState(3);
   const [zoom, setZoom] = useState(1);
   const [dragOver, setDragOver] = useState(false);
+  // 導覽只在第一次開啟時顯示（之後可按頂部的 ? 再看）
   const [tour, setTour] = useState(() => lsGet('tourDone') !== '1');
+  useEffect(() => { if (tour) lsSet('tourDone', '1'); }, [tour]);
   const [restore, setRestore] = useState<ProjectFile | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -50,7 +55,7 @@ export function App() {
   const seq = useRef(0);
   const applied = useRef(-1);
 
-  useEffect(() => { lsSet('lang', lang); document.documentElement.lang = lang === 'en' ? 'en' : 'zh-Hant'; }, [lang]);
+  useEffect(() => { document.documentElement.lang = lang === 'en' ? 'en' : 'zh-Hant'; }, [lang]);
   useEffect(() => {
     lsSet('theme', theme);
     if (theme === 'auto') delete document.documentElement.dataset.theme;
@@ -118,7 +123,7 @@ export function App() {
     (patch: Partial<Params>) => {
       setDoc((d) => {
         const quant = QUANT_KEYS.some((k) => k in patch && patch[k] !== d.params[k]);
-        const params = { ...d.params, ...patch, ...(quant ? { order: null, layerOpts: {}, merges: {} } : {}) };
+        const params = { ...d.params, ...patch, ...(quant ? { order: null, layerOpts: {}, merges: {}, deleted: {} } : {}) };
         return { ...d, params, meta: quant ? {} : d.meta };
       });
       if (QUANT_KEYS.some((k) => k in patch)) setSelected(null);
@@ -226,6 +231,13 @@ export function App() {
     setParams({ merges });
     setSelected(target);
   };
+  // 刪除圖層：區域改由下一層補上；最底層則直接移除。可用「復原」還原
+  const onDelete = (id: number) => {
+    const i = viewLayers.findIndex((l) => l.layer.id === id);
+    const below = i > 0 ? viewLayers[i - 1].layer.id : -1;
+    setParams({ deleted: { ...doc.params.deleted, [id]: below } });
+    setSelected(null);
+  };
   const onUnmerge = (target: number) => {
     const merges = Object.fromEntries(Object.entries(doc.params.merges).filter(([, v]) => v !== target));
     setParams({ merges });
@@ -257,7 +269,7 @@ export function App() {
             <span className="sep" />
             <IconButton icon="open" label={t('open')} onClick={() => projRef.current?.click()} />
             <IconButton icon="save" label={t('save')} onClick={saveProject} disabled={!image} />
-            <IconButton icon="globe" label={t('language')} onClick={() => setLang(lang === 'en' ? 'zh-TW' : 'en')} showLabel={false} />
+            <IconButton icon="globe" label={t('language')} onClick={() => { const next = lang === 'en' ? 'zh-TW' : 'en'; lsSet('uiLang', next); setLang(next); }} showLabel={false} />
             <IconButton icon="moon" label={t('theme')} onClick={() => setTheme(theme === 'dark' ? 'light' : theme === 'light' ? 'auto' : 'dark')} showLabel={false} />
             <IconButton icon="help" label="?" onClick={() => setTour(true)} showLabel={false} />
           </div>
@@ -305,7 +317,7 @@ export function App() {
               onSelect={setSelected}
               showThin={showThin}
               original={showOriginal ? image.url : null}
-              gapMm={gap}
+              gapMm={FOAM_MM}
               zoom={zoom}
               setZoom={setZoom}
             />
@@ -339,7 +351,8 @@ export function App() {
           globalHoles={doc.params.keepHoles}
           onMerge={onMerge}
           onUnmerge={onUnmerge}
-          foamMm={gap}
+          onDelete={onDelete}
+          foamMm={FOAM_MM}
         />
 
         <footer className="bottom">
@@ -358,8 +371,10 @@ export function App() {
             )}
           </div>
           {view === 'stack' && (
-            <div className="gap">
-              <Slider label={t('gap')} help={t('dragRotate')} value={gap} min={0} max={10} step={0.5} unit="mm" onChange={setGap} />
+            <div className="angles">
+              <button type="button" className="chip" onClick={() => canvasRef.current?.setAngle('top')}>{t('viewTop')}</button>
+              <button type="button" className="chip" onClick={() => canvasRef.current?.setAngle('side')}>{t('viewSide')}</button>
+              <Help text={t('dragRotate')} />
             </div>
           )}
           <div className="ms">{result && !busy ? t('ready', { ms: result.ms }) : busy ? t('processing') : ''}</div>
@@ -373,9 +388,9 @@ export function App() {
         )}
         {tour && (
           <Tour
-            onClose={(forever) => { setTour(false); if (forever) lsSet('tourDone', '1'); }}
+            onClose={() => { setTour(false); lsSet('tourDone', '1'); }}
             onSample={() => { setTour(false); lsSet('tourDone', '1'); openImage(loadFromCanvas(drawSample())); }}
-            onUpload={() => { setTour(false); fileRef.current?.click(); }}
+            onUpload={() => { setTour(false); lsSet('tourDone', '1'); fileRef.current?.click(); }}
           />
         )}
         {restore && !image && !tour && (

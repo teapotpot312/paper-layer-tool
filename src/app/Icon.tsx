@@ -22,8 +22,10 @@ const P: Record<string, string> = {
   scissors: 'M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12',
   printer: 'M6 9V2h12v7M6 18H4v-7h16v7h-2M6 14h12v8H6z',
   file: 'M14 2H6v20h12V6zM14 2v4h4M8 13h8M8 17h8',
-  fit: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
+  fit: 'M3 7V3h4M17 3h4v4M21 17v4h-4M7 21H3v-4M11 7a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM14 14l3 3',
   warn: 'M12 3 2 21h20L12 3zM12 10v5M12 18h.01',
+  back: 'M15 18l-6-6 6-6',
+  trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
 };
 
 export function Icon({ name, size = 20 }: { name: keyof typeof P | string; size?: number }) {

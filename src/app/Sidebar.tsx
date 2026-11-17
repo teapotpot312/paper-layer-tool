@@ -2,7 +2,7 @@ import { useState, type ReactElement } from 'react';
 import { useT } from '../i18n';
 import type { Doc } from '../lib/project';
 import type { Params, PipelineResult } from '../lib/types';
-import { Segmented, Slider, Toggle } from './controls';
+import { Help, Segmented, Slider, Toggle } from './controls';
 import { Icon } from './Icon';
 import { StyleGuide, type Style } from './StyleGuide';
 
@@ -76,7 +76,7 @@ function LayersPanel({ doc, setDoc, setParams, result }: Props) {
       <h2>{t('pLayers')}</h2>
       <p className="panel-sub">{t('pLayersSub')}</p>
       <div className="ctrl">
-        <div className="ctrl-head"><label htmlFor="w">{t('width')}</label></div>
+        <div className="ctrl-head"><label htmlFor="w">{t('width')}</label><Help text={t('widthHelp')} /></div>
         <div className="row">
           <input
             id="w"
@@ -92,7 +92,6 @@ function LayersPanel({ doc, setDoc, setParams, result }: Props) {
           />
           <Segmented value={doc.unit} label={t('width')} options={[{ v: 'cm', label: t('cm') }, { v: 'in', label: t('inch') }]} onChange={(u) => setDoc((d) => ({ ...d, unit: u }))} />
         </div>
-        <div className="ctrl-help">{t('widthHelp')}</div>
       </div>
       <Slider
         label={t('k')}
@@ -109,9 +108,8 @@ function LayersPanel({ doc, setDoc, setParams, result }: Props) {
       />
       <Slider label={t('merge')} help={t('mergeHelp')} value={p.merge} min={0} max={40} onChange={(v) => setParams({ merge: v })} />
       <div className="ctrl">
-        <div className="ctrl-head"><label>{t('bg')}</label></div>
+        <div className="ctrl-head"><label>{t('bg')}</label><Help text={t('bgHelp')} /></div>
         <Segmented value={p.bg} label={t('bg')} options={[{ v: 'keep', label: t('bgKeep') }, { v: 'remove', label: t('bgRemove') }, { v: 'plate', label: t('bgPlate') }]} onChange={(v) => setParams({ bg: v })} />
-        <div className="ctrl-help">{t('bgHelp')}</div>
       </div>
       <Slider label={t('blur')} help={t('blurHelp')} value={p.blur} min={0} max={3} onChange={(v) => setParams({ blur: v })} />
     </>
@@ -183,9 +181,8 @@ function StackPanel({ doc, setParams, result }: Props) {
         ))}
       </div>
       <div className="ctrl">
-        <div className="ctrl-head"><label>{t('sort')}</label></div>
+        <div className="ctrl-head"><label>{t('sort')}</label><Help text={t('sortHint')} /></div>
         <Segmented value={p.order ? ('' as 'light') : p.sort} label={t('sort')} options={[{ v: 'area', label: t('sortArea') }, { v: 'light', label: t('sortLight') }]} onChange={(v) => setParams({ sort: v, order: null })} />
-        <div className="ctrl-help">{t('sortHint')}</div>
       </div>
       <details className="adv">
         <summary>{t('advanced')}</summary>
@@ -241,8 +238,7 @@ function RegisterPanel({ doc, setDoc }: Props) {
     <>
       <h2>{t('pRegister')}</h2>
       <p className="panel-sub">{t('pRegisterSub')}</p>
-      <Toggle checked={m.enabled} onChange={(v) => set({ enabled: v })} label={t('marksOn')} />
-      <div className="ctrl-help">{t('marksHelp')}</div>
+      <Toggle checked={m.enabled} onChange={(v) => set({ enabled: v })} label={t('marksOn')} help={t('marksHelp')} />
       <div className={'ctrl' + (m.enabled ? '' : ' disabled')}>
         <div className="ctrl-head"><label>{t('markStyle')}</label></div>
         <Segmented value={m.style} label={t('markStyle')} options={[{ v: 'corner', label: t('markCorner') }, { v: 'circle', label: t('markCircle') }, { v: 'cross', label: t('markCross') }]} onChange={(v) => set({ style: v })} />

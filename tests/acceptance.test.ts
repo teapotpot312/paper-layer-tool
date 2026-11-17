@@ -311,3 +311,24 @@ describe('自行指定合併圖層', () => {
     expect(run(img, { ...p, merges: { 0: 1, 1: 0 } }).layers.length).toBeGreaterThan(0);
   });
 });
+
+describe('刪除圖層', () => {
+  const img = makeImage(300, 300, (x, y) => {
+    const d = Math.hypot(x - 150, y - 150);
+    return d < 20 ? [20, 20, 20] : d < 60 ? [200, 40, 40] : d < 110 ? [240, 130, 30] : [255, 244, 200];
+  });
+  it('刪除的層消失，區域由下一層補上；最底層可直接移除', () => {
+    const p = { ...defaultParams, mode: 'independent' as const, extendMm: 0 };
+    const base = run(img, p);
+    const ids = base.order; // 由下到上
+    const [bottom, , mid] = ids;
+    const below = ids[ids.indexOf(mid) - 1];
+    const a = run(img, { ...p, deleted: { [mid]: below } });
+    expect(a.layers.map((l) => l.id)).not.toContain(mid);
+    const area = (r: typeof a, id: number) => r.layers.find((l) => l.id === id)!.areaMm2;
+    expect(area(a, below)).toBeCloseTo(area(base, below) + area(base, mid), -1);
+    const b = run(img, { ...p, deleted: { [bottom]: -1 } });
+    expect(b.layers.map((l) => l.id)).not.toContain(bottom);
+    expect(b.layers.length).toBe(base.layers.length - 1);
+  });
+});

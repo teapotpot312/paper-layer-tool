@@ -78,7 +78,7 @@ export class Pipeline {
       absorbSmall(modeFilter(raw, w, h, passes, nL, strong), w, h, minPx, nL, palette.map((c) => c.lab)),
     );
     // 使用者指定的合併：把來源顏色的像素改歸目標圖層（目標保留自己的顏色）
-    const labels = applyMerges(cleaned, p.merges, nL);
+    const labels = applyMerges(cleaned, { ...p.merges, ...p.deleted }, nL);
     const mergedInto = new Map<number, number[]>();
     for (const [from, to] of Object.entries(p.merges ?? {})) {
       const f = Number(from), t = resolveMerge(p.merges, to);
@@ -368,7 +368,7 @@ export function applyMerges(labels: Int16Array, merges: Record<number, number> |
   let any = false;
   for (let i = 0; i < nL; i++) {
     const t = resolveMerge(merges, i);
-    map[i] = t >= 0 && t < nL ? t : i;
+    map[i] = t === -1 ? -1 : t >= 0 && t < nL ? t : i;
     if (map[i] !== i) any = true;
   }
   if (!any) return labels;

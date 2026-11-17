@@ -19,6 +19,8 @@ export const PX_PER_MM = 96 / 25.4;
 export interface CanvasHandle {
   fit: () => void;
   zoomBy: (f: number) => void;
+  /** 立體檢視：切到俯視或側視 */
+  setAngle: (a: 'top' | 'side') => void;
 }
 
 interface Props {
@@ -81,7 +83,7 @@ export const CanvasView = forwardRef<CanvasHandle, Props>(function CanvasView(pr
     [setZoom],
   );
 
-  useImperativeHandle(ref, () => ({ fit, zoomBy: (f) => zoomAt(f) }), [fit, zoomAt]);
+  useImperativeHandle(ref, () => ({ fit, zoomBy: (f) => zoomAt(f), setAngle: (a) => setRot(a === 'top' ? { x: 0, z: 0 } : { x: 85, z: 0 }) }), [fit, zoomAt]);
 
   // 換圖或切換檢視時自動符合視窗
   useEffect(() => { fit(); }, [view, Math.round(contentW), Math.round(contentH)]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -124,7 +126,7 @@ export const CanvasView = forwardRef<CanvasHandle, Props>(function CanvasView(pr
     const dx = e.clientX - d.x, dy = e.clientY - d.y;
     if (Math.abs(dx) + Math.abs(dy) > 3) d.moved = true;
     if (d.rotate) {
-      setRot((r) => ({ x: Math.min(75, Math.max(0, r.x - (e.movementY || 0) * 0.4)), z: r.z - (e.movementX || 0) * 0.4 }));
+      setRot((r) => ({ x: Math.min(88, Math.max(0, r.x - (e.movementY || 0) * 0.4)), z: r.z - (e.movementX || 0) * 0.4 }));
     } else setPan({ x: d.px + dx, y: d.py + dy });
   };
   const onPointerUp = (e: React.PointerEvent) => {

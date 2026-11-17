@@ -36,7 +36,6 @@ export function Slider({ label, help, value, min, max, step = 1, unit, disabled,
         {extra}
       </div>
       <input type="range" min={min} max={max} step={step} value={value} disabled={disabled} aria-label={label} onChange={(e) => onChange(Number(e.target.value))} />
-      <div className="ctrl-help">{help}</div>
     </div>
   );
 }
@@ -53,12 +52,13 @@ export function Segmented<V extends string>({ value, options, onChange, label }:
   );
 }
 
-export function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+export function Toggle({ checked, onChange, label, help }: { checked: boolean; onChange: (v: boolean) => void; label: string; help?: string }) {
   return (
     <label className="toggle">
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
       <span className="toggle-track"><span /></span>
       <span>{label}</span>
+      {help && <Help text={help} />}
     </label>
   );
 }
