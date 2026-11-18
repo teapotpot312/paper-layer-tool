@@ -3,10 +3,21 @@ import { Icon } from './Icon';
 
 export function Help({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const show = (el: HTMLElement) => {
+    // 用 fixed 定位並限制在視窗內，避免撐出捲軸
+    const r = el.getBoundingClientRect();
+    const w = Math.min(220, window.innerWidth - 16);
+    let left = r.right + 6;
+    if (left + w > window.innerWidth - 8) left = Math.max(8, r.left - w - 6);
+    if (left < 8) left = 8;
+    setPos({ left, top: Math.max(8, r.top - 6) });
+    setOpen(true);
+  };
   return (
-    <span className="help" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
-      <button type="button" className="help-btn" aria-label={text} onClick={() => setOpen((o) => !o)}>?</button>
-      {open && <span className="help-pop" role="tooltip">{text}</span>}
+    <span className="help" onMouseEnter={(e) => show(e.currentTarget)} onMouseLeave={() => setOpen(false)}>
+      <button type="button" className="help-btn" aria-label={text} onClick={(e) => (open ? setOpen(false) : show(e.currentTarget))}>?</button>
+      {open && pos && <span className="help-pop" role="tooltip" style={{ left: pos.left, top: pos.top }}>{text}</span>}
     </span>
   );
 }

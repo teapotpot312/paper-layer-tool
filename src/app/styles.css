@@ -110,7 +110,7 @@ input[type='number'] { width: 96px; padding: 7px 10px; border: 1px solid var(--b
 .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .help { position: relative; display: inline-flex; }
 .help-btn { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface-2); font-size: 12px; line-height: 1; cursor: help; color: var(--text-2); padding: 0; }
-.help-pop { position: absolute; z-index: 30; left: 26px; top: -6px; width: 220px; padding: 8px 10px; border-radius: 8px; background: var(--text); color: var(--bg); font-size: 13px; font-weight: 400; box-shadow: var(--shadow); }
+.help-pop { position: fixed; z-index: 100; width: 220px; max-width: calc(100vw - 16px); box-sizing: border-box; white-space: normal; overflow-wrap: anywhere; word-break: break-word; line-height: 1.45; text-align: left; pointer-events: none; padding: 8px 10px; border-radius: 8px; background: var(--text); color: var(--bg); font-size: 13px; font-weight: 400; box-shadow: var(--shadow); }
 .chip { border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 3px 10px; font-size: 13px; cursor: pointer; }
 .chip.on { background: var(--primary-soft); border-color: var(--primary); color: var(--primary-strong); font-weight: 600; }
 .seg { display: inline-flex; flex-wrap: wrap; background: var(--surface-2); border-radius: 10px; padding: 3px; gap: 2px; }
