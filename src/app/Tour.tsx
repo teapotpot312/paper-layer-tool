@@ -9,6 +9,7 @@ export function Tour({ onClose, onSample, onUpload }: { onClose: () => void; onS
     [t('tour1t'), t('tour1')],
     [t('tour2t'), t('tour2')],
     [t('tour3t'), t('tour3')],
+    [t('tour4t'), t('tour4')],
   ];
   const last = i === steps.length - 1;
   return (

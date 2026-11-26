@@ -192,7 +192,7 @@ export async function exportPdf(layers: ExportLayer[], widthMm: number, heightMm
   const g = c.getContext('2d')!;
   const font = (px: number, bold = false) => `${bold ? 'bold ' : ''}${px}px "Microsoft JhengHei","PingFang TC","Noto Sans TC",system-ui,sans-serif`;
   g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
-  g.fillStyle = '#00a99d'; g.fillRect(0, 0, W, 14);
+  g.fillStyle = '#cdac83'; g.fillRect(0, 0, W, 14);
   g.fillStyle = '#111';
   g.font = font(54, true); g.fillText(t('pdfTitle'), 15 * s, 30 * s);
   g.font = font(26);

@@ -1,5 +1,5 @@
 import { defaultMarks, type MarkOptions } from './svg';
-import { defaultParams, type Params } from './types';
+import { defaultCut, defaultParams, type AppMode, type CutParams, type Params } from './types';
 
 export interface LayerMeta {
   name?: string;
@@ -17,19 +17,22 @@ export interface Doc {
   meta: Record<number, LayerMeta>;
   marks: MarkOptions;
   unit: Unit;
+  /** null = 尚未選擇製作模式（上傳後的選擇畫面） */
+  mode: AppMode | null;
+  cut: CutParams;
 }
 
-export const defaultDoc: Doc = { params: defaultParams, meta: {}, marks: defaultMarks, unit: 'cm' };
+export const defaultDoc: Doc = { params: defaultParams, meta: {}, marks: defaultMarks, unit: 'cm', mode: null, cut: defaultCut };
 
 export interface ProjectFile {
   app: 'paper-layer-tool';
-  version: 1;
+  version: 1 | 2;
   doc: Doc;
   image: string;
 }
 
 export function toProject(doc: Doc, image: string): ProjectFile {
-  return { app: 'paper-layer-tool', version: 1, doc, image };
+  return { app: 'paper-layer-tool', version: 2, doc, image };
 }
 
 export function parseProject(text: string): ProjectFile {
@@ -42,6 +45,9 @@ export function parseProject(text: string): ProjectFile {
       ...p.doc,
       params: { ...defaultParams, ...p.doc?.params },
       marks: { ...defaultMarks, ...p.doc?.marks },
+      cut: { ...defaultCut, ...p.doc?.cut },
+      // 舊版專案（沒有 mode 欄位）一律是多色分層
+      mode: p.doc && 'mode' in p.doc ? (p.doc.mode === 'cut' || p.doc.mode === 'multi' ? p.doc.mode : null) : 'multi',
     },
   };
 }

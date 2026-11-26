@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import { Icon } from './Icon';
 
 export function Help({ text }: { text: string }) {
@@ -46,7 +46,7 @@ export function Slider({ label, help, value, min, max, step = 1, unit, disabled,
         <span className="ctrl-val">{format ? format(value) : value}{unit ? ' ' + unit : ''}</span>
         {extra}
       </div>
-      <input type="range" min={min} max={max} step={step} value={value} disabled={disabled} aria-label={label} onChange={(e) => onChange(Number(e.target.value))} />
+      <input type="range" min={min} max={max} step={step} value={value} disabled={disabled} aria-label={label} style={{ '--pct': `${((value - min) / (max - min || 1)) * 100}%` } as CSSProperties} onChange={(e) => onChange(Number(e.target.value))} />
     </div>
   );
 }

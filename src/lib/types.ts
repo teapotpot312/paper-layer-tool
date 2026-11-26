@@ -114,3 +114,142 @@ export interface RGBAImage {
   width: number;
   height: number;
 }
+
+/** 製作模式：選定後不可更換（要換只能關閉專案重來） */
+export type AppMode = 'multi' | 'cut';
+export type CutMethod = 'outline' | 'stencil';
+
+/**
+ * 使用者在畫布上點選區域後的強制設定。座標以作品寬度正規化（x / 寬度、y / 寬度），
+ * 所以改變尺寸、解析度或平滑度後仍能對回同一個區域。
+ */
+export interface RegionOverride {
+  u: number;
+  v: number;
+  state: 'keep' | 'cut';
+}
+
+/** 單色切割模式的設定 */
+export interface CutParams {
+  method: CutMethod;
+  /** 明暗門檻 0–255：比它暗的像素視為保留的紙 */
+  threshold: number;
+  /** 作品寬度 (mm) */
+  widthMm: number;
+  /** 細節平滑 0–3（中值濾波次數）：越高越能去掉雜點與紋理，但也會抹掉細節 */
+  blur: number;
+  /** 邊緣平滑度 0–10 */
+  smooth: number;
+  /** 小於此面積的碎片會被移除 (mm²) */
+  minAreaMm2: number;
+  /** 小於此面積的小洞會被填起來 (mm²)；外輪廓模式一律填滿 */
+  fillMm2: number;
+  /** 最小可切割寬度 (mm) */
+  minWidthMm: number;
+  /** 自動為內部的獨立紙片加連接橋，避免掉落 */
+  autoBridge: boolean;
+  /** 連接橋寬度 (mm) */
+  bridgeMm: number;
+  /** 使用者點選區域後的保留 / 挖空設定 */
+  regions: RegionOverride[];
+}
+
+export const BRIDGE_WIDTHS = [1, 1.5, 2, 3] as const;
+
+export const defaultCut: CutParams = { method: 'stencil', threshold: 128, widthMm: 150, blur: 0, smooth: 4, minAreaMm2: 1.5, fillMm2: 0.5, minWidthMm: 1.5, autoBridge: true, bridgeMm: 1.5, regions: [] };
+
+/** 單色切割的處理結果 */
+export interface CutResult {
+  seq: number;
+  quality: Quality;
+  /** 切割路徑（mm，複合路徑，孔洞以 evenodd 表示） */
+  d: string;
+  nodes: number;
+  widthMm: number;
+  heightMm: number;
+  pxPerMm: number;
+  areaMm2: number;
+  /** 獨立的紙片數（連通的保留區域） */
+  pieces: number;
+  /** 內部挖空的洞數 */
+  holes: number;
+  thinD: string;
+  thinCount: number;
+  /** 位於挖空區域內、與主體分離的紙片數（會掉落的零件，連橋前） */
+  islands: number;
+  /** 這些獨立紙片的輪廓（mm） */
+  islandD: string;
+  /** 自動加上的連接橋 */
+  bridges: CutBridge[];
+  /** 自動橋接後仍無法連上的內部紙片數（或關閉自動橋接時的內部紙片數） */
+  unresolved: number;
+  /** 找不到對應區域、未套用的使用者設定數 */
+  unmapped: number;
+  /** 切割風險代碼 */
+  risks: CutRisk[];
+  check: CutCheck;
+  ms: number;
+}
+
+/** 切割路徑的基本檢查結果 */
+export interface CutCheck {
+  ok: boolean;
+  subpaths: number;
+  /** 沒有封閉的子路徑數 */
+  open: number;
+  /** 超出作品範圍的子路徑數 */
+  outOfBounds: number;
+  /** 完全重複的子路徑數（會重複切割同一條邊） */
+  duplicates: number;
+  /** 小到幾乎切不出來的子路徑數 */
+  tiny: number;
+  /** 座標含 NaN / Infinity */
+  invalid: boolean;
+}
+
+/** 一座連接橋（mm）：從內部紙片到主體的線段與寬度 */
+export interface CutBridge {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  widthMm: number;
+  lengthMm: number;
+}
+
+export type CutRisk = 'islandsOpen' | 'bridgeLong' | 'bridgeThin' | 'unresolved' | 'unmapped';
+
+/** 選取的一個區域 */
+export interface RegionInfo {
+  /** 區域在該種類裡的編號（只在同一組處理參數下有效，用來判斷是不是同一個區域） */
+  id: number;
+  /** 區域內的一個位置（正規化座標，保留 / 挖空設定會存成 RegionOverride） */
+  u: number;
+  v: number;
+  /** paper = 保留的紙片；hole = 內部挖空 */
+  kind: 'paper' | 'hole';
+  /** 自動判斷的結果：保留或挖空 */
+  auto: 'kept' | 'cut';
+  /** 目前實際結果（套用使用者設定後） */
+  state: 'kept' | 'cut';
+  forced: boolean;
+  /** 是內部、與主體分離的紙片 */
+  island: boolean;
+  areaMm2: number;
+  /** 目前作用在這個區域上的使用者設定（RegionOverride 在 regions 陣列的索引） */
+  overrideIdx: number[];
+}
+
+/** 點選或框選後的結果：一個或多個區域，加上整體的輪廓（mm，用來在畫布上標示） */
+export interface RegionSelection {
+  items: RegionInfo[];
+  d: string;
+}
+
+/** 選取查詢：點選（points）、框選（rect，正規化座標）；additive 時在 include 已選的區域上加選 / 取消 */
+export interface RegionQuery {
+  points?: { u: number; v: number }[];
+  rect?: { u0: number; v0: number; u1: number; v1: number };
+  additive?: boolean;
+  include?: { u: number; v: number }[];
+}

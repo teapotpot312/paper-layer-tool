@@ -24,11 +24,11 @@ interface Props {
 
 /** 依設定的必要性排序：① 分色 ② 樣式 是必做，③ 清理 ④ 對位 可略過 */
 const TOOLS: { id: PanelId | 'upload'; icon: string; key: 'tUpload' | 'tLayers' | 'tClean' | 'tStack' | 'tRegister' }[] = [
-  { id: 'upload', icon: 'upload', key: 'tUpload' },
   { id: 'layers', icon: 'layers', key: 'tLayers' },
   { id: 'stack', icon: 'stack', key: 'tStack' },
   { id: 'clean', icon: 'clean', key: 'tClean' },
   { id: 'register', icon: 'target', key: 'tRegister' },
+  { id: 'upload', icon: 'upload', key: 'tUpload' },
 ];
 
 export function Sidebar(props: Props) {
@@ -93,6 +93,7 @@ function LayersPanel({ doc, setDoc, setParams, result }: Props) {
           <Segmented value={doc.unit} label={t('width')} options={[{ v: 'cm', label: t('cm') }, { v: 'in', label: t('inch') }]} onChange={(u) => setDoc((d) => ({ ...d, unit: u }))} />
         </div>
       </div>
+      <div className="rule" role="separator" />
       <Slider
         label={t('k')}
         help={t('kHelp')}
@@ -107,6 +108,7 @@ function LayersPanel({ doc, setDoc, setParams, result }: Props) {
         }
       />
       <Slider label={t('merge')} help={t('mergeHelp')} value={p.merge} min={0} max={40} onChange={(v) => setParams({ merge: v })} />
+      <div className="rule" role="separator" />
       <div className="ctrl">
         <div className="ctrl-head"><label>{t('bg')}</label><Help text={t('bgHelp')} /></div>
         <Segmented value={p.bg} label={t('bg')} options={[{ v: 'keep', label: t('bgKeep') }, { v: 'remove', label: t('bgRemove') }, { v: 'plate', label: t('bgPlate') }]} onChange={(v) => setParams({ bg: v })} />
@@ -127,6 +129,7 @@ function CleanPanel({ doc, setParams, thinTotal: thin, showThin, setShowThin }: 
       <Slider label={t('fill')} help={t('fillHelp')} value={p.fillMm2} min={0} max={30} step={0.5} unit="mm²" onChange={(v) => setParams({ fillMm2: v })} />
       <Slider label={t('smooth')} help={t('smoothHelp')} value={p.smooth} min={0} max={10} onChange={(v) => setParams({ smooth: v })} />
       <Slider label={t('minWidth')} help={t('minWidthHelp')} value={p.minWidthMm} min={0.5} max={4} step={0.1} unit="mm" format={(v) => v.toFixed(1)} onChange={(v) => setParams({ minWidthMm: v })} />
+      <div className="rule" role="separator" />
       <div className={'notice ' + (thin ? 'warn' : 'ok')}>
         {thin ? <Icon name="warn" size={16} /> : null}
         <span>{thin ? t('thinFound', { n: thin }) : t('thinNone')}</span>
@@ -180,6 +183,7 @@ function StackPanel({ doc, setParams, result }: Props) {
           </button>
         ))}
       </div>
+      <div className="rule" role="separator" />
       <div className="ctrl">
         <div className="ctrl-head"><label>{t('sort')}</label><Help text={t('sortHint')} /></div>
         <Segmented value={p.order ? ('' as 'light') : p.sort} label={t('sort')} options={[{ v: 'area', label: t('sortArea') }, { v: 'light', label: t('sortLight') }]} onChange={(v) => setParams({ sort: v, order: null })} />
@@ -200,17 +204,17 @@ function StackPanel({ doc, setParams, result }: Props) {
 function StackIcon({ mode }: { mode: 'additive' | 'independent' }) {
   return mode === 'additive' ? (
     <svg viewBox="0 0 60 36" width="60" height="36" aria-hidden>
-      <rect x="4" y="22" width="52" height="10" rx="3" fill="#7fd6cd" />
-      <rect x="12" y="13" width="36" height="10" rx="3" fill="#2cb8a9" />
-      <rect x="20" y="4" width="20" height="10" rx="3" fill="#007a6e" />
+      <rect x="4" y="22" width="52" height="10" rx="3" fill="var(--ic-1)" />
+      <rect x="12" y="13" width="36" height="10" rx="3" fill="var(--ic-2)" />
+      <rect x="20" y="4" width="20" height="10" rx="3" fill="var(--ic-4)" />
     </svg>
   ) : (
     <svg viewBox="0 0 60 36" width="60" height="36" aria-hidden>
-      <rect x="4" y="22" width="14" height="10" rx="3" fill="#7fd6cd" />
-      <rect x="42" y="22" width="14" height="10" rx="3" fill="#7fd6cd" />
-      <rect x="16" y="13" width="8" height="10" rx="3" fill="#2cb8a9" />
-      <rect x="36" y="13" width="8" height="10" rx="3" fill="#2cb8a9" />
-      <rect x="22" y="4" width="16" height="10" rx="3" fill="#007a6e" />
+      <rect x="4" y="22" width="14" height="10" rx="3" fill="var(--ic-1)" />
+      <rect x="42" y="22" width="14" height="10" rx="3" fill="var(--ic-1)" />
+      <rect x="16" y="13" width="8" height="10" rx="3" fill="var(--ic-2)" />
+      <rect x="36" y="13" width="8" height="10" rx="3" fill="var(--ic-2)" />
+      <rect x="22" y="4" width="16" height="10" rx="3" fill="var(--ic-4)" />
     </svg>
   );
 }
@@ -219,13 +223,13 @@ function StackIcon({ mode }: { mode: 'additive' | 'independent' }) {
 function DepthIcon({ depth }: { depth: 'flat' | 'slight' | 'strong' }) {
   const foam = depth === 'flat' ? [false, false, false] : depth === 'slight' ? [true, false, true] : [true, true, true];
   let y = 30;
-  const parts: ReactElement[] = [<rect key="b" x="4" y={y} width="52" height="3" rx="1" fill="#7fd6cd" />];
+  const parts: ReactElement[] = [<rect key="b" x="4" y={y} width="52" height="3" rx="1" fill="var(--ic-1)" />];
   const widths = [40, 28, 16];
   widths.forEach((wd, i) => {
     const x = 30 - wd / 2;
     if (foam[i]) { y -= 6; parts.push(<rect key={'f' + i} x={x + 3} y={y + 1} width={wd - 6} height={5} fill="#e2c9a0" />); }
     y -= 3;
-    parts.push(<rect key={'p' + i} x={x} y={y} width={wd} height="3" rx="1" fill={['#2cb8a9', '#00927f', '#007a6e'][i]} />);
+    parts.push(<rect key={'p' + i} x={x} y={y} width={wd} height="3" rx="1" fill={['var(--ic-2)', 'var(--ic-3)', 'var(--ic-4)'][i]} />);
   });
   return <svg viewBox="0 0 60 36" width="60" height="36" aria-hidden>{parts}</svg>;
 }
@@ -246,6 +250,7 @@ function RegisterPanel({ doc, setDoc }: Props) {
       <Slider label={t('margin')} help={t('marginHelp')} value={m.margin} min={5} max={25} unit="mm" disabled={!m.enabled && !m.numbers} onChange={(v) => set({ margin: v })} />
       <Slider label={t('markSize')} help={t('markSizeHelp')} value={m.size} min={2} max={20} step={0.5} unit="mm" disabled={!m.enabled} onChange={(v) => set({ size: v })} />
       <Toggle checked={m.numbers} onChange={(v) => set({ numbers: v })} label={t('numbers')} />
+      <div className="rule" role="separator" />
       <p className="note">{t('regNote')}</p>
     </>
   );

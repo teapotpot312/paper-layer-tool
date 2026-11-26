@@ -4,8 +4,13 @@ import { I18nContext, makeT, type Lang } from '../i18n';
 import { downloadText, IN, MAT12, MAT24, type ExportLayer } from '../lib/exporters';
 import { HUGE, loadFromCanvas, loadFromFile, loadFromUrl, type LoadedImage } from '../lib/image';
 import { autosave, defaultDoc, loadAutosave, lsGet, lsSet, parseProject, toProject, type Doc, type LayerMeta, type ProjectFile } from '../lib/project';
-import type { LayerOpts, Params, PipelineResult } from '../lib/types';
+import type { AppMode, CutParams, CutResult, LayerOpts, Params, PipelineResult, RegionQuery, RegionSelection } from '../lib/types';
 import PipelineWorker from '../worker/worker?worker&inline';
+import { CutSidebar } from './CutSidebar';
+import { CutExportDialog } from './CutExportDialog';
+import { CutView, type CutViewMode } from './CutView';
+import { ModeSelect } from './ModeSelect';
+import { RegionPanel } from './RegionPanel';
 import { CanvasView, type CanvasHandle, type ViewLayer, type ViewMode } from './CanvasView';
 import { Help, IconButton, Segmented } from './controls';
 import { ExportDialog } from './ExportDialog';
@@ -32,6 +37,10 @@ export function App() {
 
   const [image, setImage] = useState<LoadedImage | null>(null);
   const [result, setResult] = useState<PipelineResult | null>(null);
+  const [cutResult, setCutResult] = useState<CutResult | null>(null);
+  const [sel, setSel] = useState<RegionSelection | null>(null);
+  // 預設流程：先選製作目的，再上傳圖片。選好目的但還沒有圖片時存在這裡
+  const [pickedMode, setPickedMode] = useState<AppMode | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [panel, setPanel] = useState<PanelId | null>(() => (window.innerWidth > 760 ? 'layers' : null));
@@ -41,6 +50,9 @@ export function App() {
   const [showThin, setShowThin] = useState(true);
   const [exportOpen, setExportOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [cutView, setCutView] = useState<CutViewMode>('lines');
+  // 上次存檔／匯出／選定模式時的文件；與目前文件不同就代表有未保存的修改
+  const cleanDoc = useRef<Doc | null>(null);
   const [dragOver, setDragOver] = useState(false);
   // 導覽只在第一次開啟時顯示（之後可按頂部的 ? 再看）
   const [tour, setTour] = useState(() => lsGet('tourDone') !== '1');
@@ -54,6 +66,9 @@ export function App() {
   const workerRef = useRef<Worker | null>(null);
   const seq = useRef(0);
   const applied = useRef(-1);
+  const cutSeq = useRef(0);
+  const cutApplied = useRef(-1);
+  const regionSeq = useRef(0);
 
   useEffect(() => { document.documentElement.lang = lang === 'en' ? 'en' : 'zh-Hant'; }, [lang]);
   useEffect(() => {
@@ -77,6 +92,16 @@ export function App() {
         }
         // 草稿結果先顯示，精確結果回來才算完成
         if (r.seq === seq.current && r.quality === 'final') setBusy(false);
+      } else if (m.type === 'region') {
+        if (m.seq === regionSeq.current) setSel(m.sel?.items.length ? m.sel : null);
+      } else if (m.type === 'cutResult') {
+        const r = m.result as CutResult;
+        if (r.seq > cutApplied.current) {
+          cutApplied.current = r.seq;
+          setCutResult(r);
+          setError(null);
+        }
+        if (r.seq === cutSeq.current && r.quality === 'final') setBusy(false);
       } else if (m.type === 'error') {
         setError(t('wWorker', { msg: m.message }));
         setBusy(false);
@@ -86,21 +111,37 @@ export function App() {
     return () => w.terminate();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const multi = doc.mode === 'multi';
+  const cut = doc.mode === 'cut';
+  const choosing = !!image && doc.mode === null;
+  const dirty = !!image && doc.mode !== null && doc !== cleanDoc.current;
+
+  const chosen = doc.mode !== null;
   useEffect(() => {
-    if (!image) return;
+    if (!image || !chosen) return;
     const buf = image.data.data.slice().buffer;
     workerRef.current?.postMessage({ type: 'image', buffer: buf, width: image.data.width, height: image.data.height, native: Math.max(image.origW, image.origH) }, [buf]);
-  }, [image]);
+  }, [image, chosen]);
+
+  // 單色切割：同樣先送低解析草稿，停止操作後再送精確結果
+  useEffect(() => {
+    if (!image || !cut) return;
+    const w = workerRef.current!;
+    setBusy(true);
+    w.postMessage({ type: 'cut', cut: doc.cut, quality: 'draft', seq: ++cutSeq.current });
+    const tm = setTimeout(() => w.postMessage({ type: 'cut', cut: doc.cut, quality: 'final', seq: ++cutSeq.current }), 350);
+    return () => clearTimeout(tm);
+  }, [image, cut, doc.cut]);
 
   // 參數變動：先送低解析草稿（即時），停止操作後再送精確結果
   useEffect(() => {
-    if (!image) return;
+    if (!image || !multi) return;
     const w = workerRef.current!;
     setBusy(true);
     w.postMessage({ type: 'run', params: doc.params, quality: 'draft', seq: ++seq.current });
     const tm = setTimeout(() => w.postMessage({ type: 'run', params: doc.params, quality: 'final', seq: ++seq.current }), 350);
     return () => clearTimeout(tm);
-  }, [image, doc.params]);
+  }, [image, multi, doc.params]);
 
   // 自動暫存
   useEffect(() => {
@@ -131,21 +172,86 @@ export function App() {
     [setDoc],
   );
 
+  const setCut = useCallback(
+    (patch: Partial<CutParams>) => {
+      // 設定一改，先前點選的區域資訊就過期了
+      regionSeq.current++;
+      setSel(null);
+      setDoc((d) => ({ ...d, cut: { ...d.cut, ...patch } }));
+    },
+    [setDoc],
+  );
+
+  // 點選畫布：向 worker 查詢該處的區域
+  // 加選時把目前已選的區域一起帶給 worker（由它決定加入或取消）
+  const selectRegions = (q: RegionQuery) =>
+    workerRef.current?.postMessage({ type: 'region', cut: doc.cut, query: { ...q, include: q.additive ? sel?.items.map((i) => ({ u: i.u, v: i.v })) : undefined }, seq: ++regionSeq.current });
+
+  // 對選取的區域保留 / 挖空。和自動判斷相同的設定不必存，所以不會累積多餘的覆寫；再按相反的動作就等於還原
+  const applyRegion = (act: 'keep' | 'cut') => {
+    if (!sel) return;
+    const drop = new Set(sel.items.flatMap((i) => i.overrideIdx));
+    const next = doc.cut.regions.filter((_, i) => !drop.has(i));
+    const want = act === 'keep' ? 'kept' : 'cut';
+    for (const it of sel.items) if (it.auto !== want) next.push({ u: it.u, v: it.v, state: act });
+    setCut({ regions: next });
+  };
+
+  // 有未保存的修改時，離開頁面前提醒
+  useEffect(() => {
+    if (!dirty) return;
+    const h = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', h);
+    return () => window.removeEventListener('beforeunload', h);
+  }, [dirty]);
+
+  // 選定製作模式：清掉復原紀錄，之後無法回到選擇畫面
+  const pickMode = (m: AppMode) => {
+    const d: Doc = { ...doc, mode: m };
+    cleanDoc.current = d;
+    hist.reset(d);
+  };
+
+  // 關閉專案：回到初始上傳畫面（模式只能這樣重選）
+  const closeProject = () => {
+    if (dirty && !window.confirm(t('closeConfirm'))) return;
+    setImage(null);
+    setPickedMode(null);
+    setResult(null);
+    setCutResult(null);
+    setSel(null);
+    setSelected(null);
+    setShowOriginal(false);
+    setError(null);
+    setZoom(1);
+    cleanDoc.current = null;
+    hist.reset({ ...defaultDoc, unit: doc.unit, params: { ...defaultDoc.params, widthMm: doc.params.widthMm } });
+    autosave(null);
+  };
+
   const openImage = useCallback(
     (img: LoadedImage, nextDoc?: Doc) => {
       setImage(img);
       setResult(null);
+      setCutResult(null);
+      setSel(null);
       applied.current = seq.current;
+      cutApplied.current = cutSeq.current;
       setSelected(null);
       setShowOriginal(false);
-      hist.reset(nextDoc ?? { ...defaultDoc, unit: doc.unit, params: { ...defaultDoc.params, widthMm: doc.params.widthMm } });
+      const d = nextDoc ?? { ...defaultDoc, unit: doc.unit, mode: pickedMode, params: { ...defaultDoc.params, widthMm: doc.params.widthMm } };
+      cleanDoc.current = d.mode ? d : null;
+      setPickedMode(null);
+      setZoom(1);
+      hist.reset(d);
       setError(Math.max(img.origW, img.origH) > HUGE ? t('wDown', { w: img.origW, h: img.origH }) : null);
     },
-    [hist, doc.unit, doc.params.widthMm, t],
+    [hist, doc.unit, doc.params.widthMm, pickedMode, t],
   );
 
   const loadFile = useCallback(
     async (f: Blob) => {
+      if (dirty && !window.confirm(t('replaceConfirm'))) return;
       try {
         if (f.type === 'application/json' || (f as File).name?.endsWith('.json')) {
           const p = parseProject(await f.text());
@@ -155,7 +261,7 @@ export function App() {
         setError(t('wLoad'));
       }
     },
-    [openImage, t],
+    [openImage, t, dirty],
   );
 
   // 貼上剪貼簿圖片
@@ -212,6 +318,7 @@ export function App() {
   const saveProject = () => {
     if (!image) return;
     downloadText(JSON.stringify(toProject(doc, image.url)), 'paper-layer-project.json');
+    cleanDoc.current = doc;
     setToast(t('saved'));
     setTimeout(() => setToast(null), 1500);
   };
@@ -249,7 +356,7 @@ export function App() {
   return (
     <I18nContext.Provider value={t}>
       <div
-        className={'app' + (image ? '' : ' empty') + (panel && image ? ' panel-open' : '')}
+        className={'app' + (image ? '' : ' empty') + (choosing ? ' choosing' : '') + (panel && multi ? ' panel-open' : '')}
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
         onDrop={(e) => {
@@ -260,7 +367,7 @@ export function App() {
       >
         <header className="top">
           <div className="brand">
-            <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden><rect x="4" y="16" width="24" height="12" rx="3" fill="#007a6e" /><rect x="7" y="10" width="18" height="10" rx="3" fill="#00a99d" /><rect x="10" y="4" width="12" height="10" rx="3" fill="#80d8cf" /></svg>
+            <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden><rect x="4" y="16" width="24" height="12" rx="3" fill="var(--ic-4)" /><rect x="7" y="10" width="18" height="10" rx="3" fill="var(--ic-3)" /><rect x="10" y="4" width="12" height="10" rx="3" fill="var(--ic-1)" /></svg>
             <span>{t('appName')}</span>
           </div>
           <div className="top-actions">
@@ -268,17 +375,21 @@ export function App() {
             <IconButton icon="redo" label={t('redo')} onClick={hist.redo} disabled={!hist.canRedo} />
             <span className="sep" />
             <IconButton icon="open" label={t('open')} onClick={() => projRef.current?.click()} />
-            <IconButton icon="save" label={t('save')} onClick={saveProject} disabled={!image} />
+            <IconButton icon="save" label={t('save')} onClick={saveProject} disabled={!image || choosing} />
+            {image && <IconButton icon="x" label={t('closeProject')} onClick={closeProject} />}
             <IconButton icon="globe" label={t('language')} onClick={() => { const next = lang === 'en' ? 'zh-TW' : 'en'; lsSet('uiLang', next); setLang(next); }} showLabel={false} />
             <IconButton icon="moon" label={t('theme')} onClick={() => setTheme(theme === 'dark' ? 'light' : theme === 'light' ? 'auto' : 'dark')} showLabel={false} />
             <IconButton icon="help" label="?" onClick={() => setTour(true)} showLabel={false} />
           </div>
-          <button type="button" className="btn primary make" disabled={!result} onClick={() => setExportOpen(true)}>
+          <button type="button" className="btn primary make" disabled={multi ? !result : !cutResult} onClick={() => { cleanDoc.current = doc; setExportOpen(true); }}>
             <Icon name="download" size={18} />
             <span>{t('makeIt')}</span>
           </button>
         </header>
 
+        {cut ? (
+          <CutSidebar cut={doc.cut} setCut={setCut} unit={doc.unit} setUnit={(u) => setDoc((d) => ({ ...d, unit: u }))} onUpload={() => fileRef.current?.click()} />
+        ) : (
         <Sidebar
           panel={panel}
           setPanel={setPanel}
@@ -289,13 +400,22 @@ export function App() {
           showThin={showThin}
           setShowThin={setShowThin}
           onUpload={() => fileRef.current?.click()}
-          hasImage={!!image}
+          hasImage={multi}
           thinTotal={thinTotal}
         />
+        )}
 
         <main className="center">
-          {!image ? (
+          {!image && !pickedMode ? (
+            <ModeSelect onPick={setPickedMode} />
+          ) : !image ? (
             <div className={'drop' + (dragOver ? ' over' : '')} onClick={() => fileRef.current?.click()} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && fileRef.current?.click()}>
+              <div className="drop-top">
+                <span className="chip on">{t(pickedMode === 'cut' ? 'modeCut' : 'modeMulti')}</span>
+                <button type="button" className="btn link" onClick={(e) => { e.stopPropagation(); setPickedMode(null); }}>
+                  <Icon name="back" size={16} /><span>{t('back')}</span>
+                </button>
+              </div>
               <Icon name="image" size={56} />
               <h1>{t('dropTitle')}</h1>
               <p>{t('dropHint')}</p>
@@ -303,8 +423,11 @@ export function App() {
                 <Icon name="upload" />
                 <span>{t('uploadFile')}</span>
               </button>
-              <p className="note">{t('privacy')}</p>
             </div>
+          ) : choosing ? (
+            <ModeSelect image={image.url} onPick={pickMode} />
+          ) : cut ? (
+            cutResult ? <CutView result={cutResult} view={cutView} zoom={zoom} sel={sel} onSelect={selectRegions} /> : <div className="loading"><div className="spinner" />{t('processing')}</div>
           ) : result ? (
             <CanvasView
               ref={canvasRef}
@@ -324,7 +447,15 @@ export function App() {
           ) : (
             <div className="loading"><div className="spinner" />{t('processing')}</div>
           )}
-          {image && (
+          {image && cut && (
+            <div className="status">
+              {busy && <div className="progress"><span /></div>}
+              {error && <p className="notice warn"><Icon name="warn" size={16} />{error}</p>}
+              {cutResult && cutResult.thinCount > 0 && cutView === 'lines' && <p className="notice thin-note"><Icon name="warn" size={16} />{t('thinFound', { n: cutResult.thinCount })}</p>}
+              {cutResult && !cutResult.check.ok && <p className="notice warn"><Icon name="warn" size={16} />{t('cutCheckFail')}</p>}
+            </div>
+          )}
+          {image && multi && (
             <div className="status">
               {busy && <div className="progress"><span /></div>}
               {error && <p className="notice warn"><Icon name="warn" size={16} />{error}</p>}
@@ -340,6 +471,7 @@ export function App() {
           )}
         </main>
 
+        {cut ? <RegionPanel result={cutResult} sel={sel} onAction={applyRegion} /> : !multi ? null : (
         <LayerPanel
           layers={viewLayers}
           selected={selected}
@@ -354,30 +486,35 @@ export function App() {
           onDelete={onDelete}
           foamMm={FOAM_MM}
         />
+        )}
 
         <footer className="bottom">
           <div className="zoom">
             <span className="lbl">{t('zoom')}</span>
-            <IconButton icon="minus" label="-" onClick={() => canvasRef.current?.zoomBy(1 / 1.25)} showLabel={false} disabled={!result} />
+            <IconButton icon="minus" label="-" onClick={() => (cut ? setZoom((z) => Math.max(0.25, z / 1.25)) : canvasRef.current?.zoomBy(1 / 1.25))} showLabel={false} disabled={cut ? false : !result} />
             <span className="zoom-val">{Math.round(zoom * 100)}%</span>
-            <IconButton icon="plus" label="+" onClick={() => canvasRef.current?.zoomBy(1.25)} showLabel={false} disabled={!result} />
-            <IconButton icon="fit" label={t('fit')} onClick={() => canvasRef.current?.fit()} showLabel={false} disabled={!result} />
+            <IconButton icon="plus" label="+" onClick={() => (cut ? setZoom((z) => Math.min(8, z * 1.25)) : canvasRef.current?.zoomBy(1.25))} showLabel={false} disabled={cut ? false : !result} />
+            <IconButton icon="fit" label={t('fit')} onClick={() => (cut ? setZoom(1) : canvasRef.current?.fit())} showLabel={false} disabled={cut ? false : !result} />
           </div>
           <div className="views">
             <span className="lbl">{t('view')}</span>
-            <Segmented value={view} label={t('view')} options={[{ v: 'flat', label: t('vFlat') }, { v: 'layers', label: t('vLayers') }, { v: 'stack', label: t('vStack') }]} onChange={setView} />
-            {view === 'flat' && (
+            {cut ? (
+              <Segmented value={cutView} label={t('view')} options={[{ v: 'result', label: t('cutResult') }, { v: 'lines', label: t('cutLines') }]} onChange={setCutView} />
+            ) : (
+              <Segmented value={view} label={t('view')} options={[{ v: 'flat', label: t('vFlat') }, { v: 'layers', label: t('vLayers') }, { v: 'stack', label: t('vStack') }]} onChange={setView} />
+            )}
+            {multi && view === 'flat' && (
               <button type="button" className={'chip' + (showOriginal ? ' on' : '')} onClick={() => setShowOriginal((v) => !v)} disabled={!image}>{t('original')}</button>
             )}
           </div>
-          {view === 'stack' && (
+          {multi && view === 'stack' && (
             <div className="angles">
               <button type="button" className="chip" onClick={() => canvasRef.current?.setAngle('top')}>{t('viewTop')}</button>
               <button type="button" className="chip" onClick={() => canvasRef.current?.setAngle('side')}>{t('viewSide')}</button>
               <Help text={t('dragRotate')} />
             </div>
           )}
-          <div className="ms">{result && !busy ? t('ready', { ms: result.ms }) : busy ? t('processing') : ''}</div>
+          <div className="ms">{(cut ? cutResult : result) && !busy ? t('ready', { ms: (cut ? cutResult : result)!.ms }) : busy ? t('processing') : ''}</div>
         </footer>
 
         <input ref={fileRef} type="file" hidden accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg" onChange={(e) => { const f = e.target.files?.[0]; if (f) loadFile(f); e.target.value = ''; }} />
@@ -386,11 +523,12 @@ export function App() {
         {exportOpen && result && (
           <ExportDialog layers={exportLayers} widthMm={result.widthMm} heightMm={result.heightMm} marks={doc.marks} styleName={t(`style_${styleOf(doc.params)}`)} warnings={warnings} thinTotal={thinTotal} onClose={() => setExportOpen(false)} />
         )}
+        {exportOpen && cut && cutResult && <CutExportDialog result={cutResult} cut={doc.cut} onClose={() => setExportOpen(false)} />}
         {tour && (
           <Tour
             onClose={() => { setTour(false); lsSet('tourDone', '1'); }}
             onSample={() => { setTour(false); lsSet('tourDone', '1'); openImage(loadFromCanvas(drawSample())); }}
-            onUpload={() => { setTour(false); lsSet('tourDone', '1'); fileRef.current?.click(); }}
+            onUpload={() => { setTour(false); lsSet('tourDone', '1'); }}
           />
         )}
         {restore && !image && !tour && (
